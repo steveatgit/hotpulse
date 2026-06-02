@@ -1,0 +1,71 @@
+[
+  {
+    "doc_id": "bridge-1",
+    "event_id": "bridge_accident",
+    "title": "City transport bureau confirms Harbor Bridge shuttle crash injured 14",
+    "source": "City Transport Bureau",
+    "source_type": "official",
+    "published_at": "2026-05-15T08:10:00Z",
+    "reliability": 0.96,
+    "url": "https://example.local/bridge-1",
+    "content": "The city transport bureau said a shuttle bus struck a maintenance barrier near Harbor Bridge at 07:35 local time. Fourteen passengers were taken to nearby hospitals. The bureau said no fatalities had been confirmed and a brake-system inspection had started.",
+    "claims": [
+      "Officials confirmed the Harbor Bridge shuttle crash injured 14 passengers.",
+      "Officials said no fatalities had been confirmed as of the first briefing.",
+      "A brake-system inspection started after the crash."
+    ],
+    "entities": ["Harbor Bridge", "City Transport Bureau", "shuttle bus"],
+    "tags": ["accident", "transport", "bridge", "injury"]
+  },
+  {
+    "doc_id": "bridge-2",
+    "event_id": "bridge_accident",
+    "title": "Local hospital says two Harbor Bridge crash victims remain in surgery",
+    "source": "Harbor General Hospital",
+    "source_type": "official",
+    "published_at": "2026-05-15T11:25:00Z",
+    "reliability": 0.91,
+    "url": "https://example.local/bridge-2",
+    "content": "Harbor General Hospital reported that eight crash victims were treated and two remained in surgery. The hospital said all admitted patients were alive at the time of the statement.",
+    "claims": [
+      "Harbor General Hospital said two crash victims remained in surgery.",
+      "The hospital said all admitted patients were alive at the time of the update."
+    ],
+    "entities": ["Harbor General Hospital", "Harbor Bridge"],
+    "tags": ["hospital", "injury", "update"]
+  },
+  {
+    "doc_id": "bridge-3",
+    "event_id": "bridge_accident",
+    "title": "Witnesses dispute whether the Harbor Bridge shuttle accelerated before impact",
+    "source": "Metro Daily",
+    "source_type": "media",
+    "published_at": "2026-05-15T14:30:00Z",
+    "reliability": 0.68,
+    "url": "https://example.local/bridge-3",
+    "content": "Witness interviews published by Metro Daily said several commuters believed the shuttle accelerated shortly before impact, while one maintenance worker said the vehicle looked unstable but not faster than normal. Authorities had not confirmed the vehicle speed.",
+    "claims": [
+      "Witnesses disputed whether the shuttle accelerated before impact.",
+      "Authorities had not confirmed the vehicle speed."
+    ],
+    "entities": ["Metro Daily", "Harbor Bridge", "maintenance worker"],
+    "tags": ["witness", "speed", "dispute"]
+  },
+  {
+    "doc_id": "bridge-4",
+    "event_id": "bridge_accident",
+    "title": "Transit regulator denies online rumor of confirmed fatalities in Harbor Bridge crash",
+    "source": "National Transit Regulator",
+    "source_type": "official",
+    "published_at": "2026-05-15T16:45:00Z",
+    "reliability": 0.94,
+    "url": "https://example.local/bridge-4",
+    "content": "The national transit regulator denied social-media rumors claiming fatalities had already been confirmed. The regulator said the investigation remained active and urged the public to rely on official updates.",
+    "claims": [
+      "The transit regulator denied rumors that fatalities had been confirmed.",
+      "The investigation remained active."
+    ],
+    "entities": ["National Transit Regulator", "Harbor Bridge"],
+    "tags": ["rumor", "fatalities", "investigation"]
+  }
+]
