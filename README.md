@@ -119,14 +119,13 @@ python3 -m pip install -e .
 之后可以直接运行：
 
 ```bash
-hotpulse --case examples/cases/bridge_accident.json
+hotpulse
 ```
 
 如果要显式指定配置文件：
 
 ```bash
 hotpulse \
-  --case examples/cases/bridge_accident.json \
   --config hotpulse.config.json
 ```
 
@@ -189,7 +188,7 @@ export HOTPULSE_SEARCH_PROVIDER=tavily
 export TAVILY_API_KEY=tvly-...
 export HOTPULSE_FETCH_PROVIDER=firecrawl
 export FIRECRAWL_API_KEY=fc-...
-hotpulse --case examples/cases/bridge_accident.json
+hotpulse --mode online
 ```
 
 ## 输出内容

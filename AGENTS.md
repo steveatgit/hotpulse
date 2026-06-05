@@ -15,14 +15,13 @@ python3 -m pip install -e .
 Installs the package in editable mode so local commands can run without `PYTHONPATH=src`.
 
 ```bash
-hotpulse --case examples/cases/bridge_accident.json
+hotpulse
 ```
 
 Runs the default local case and prints config, plan, trace, metrics, and final report.
 
 ```bash
 hotpulse \
-  --case examples/cases/bridge_accident.json \
   --config hotpulse.config.json
 ```
 

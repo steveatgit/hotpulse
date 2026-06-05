@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
-from .config import AppConfig, load_config
+from .config import AppConfig, load_config, override_config
 from .orchestrator import HotPulseOrchestrator
 from .planner import Planner
 from .reflector import Reflector
@@ -44,20 +44,39 @@ def load_case(case_path: Path) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run HotPulse Agent on a local case.")
-    parser.add_argument("--case", required=True, help="Path to a case JSON file.")
+    parser.add_argument(
+        "--case",
+        default="examples/cases/bridge_accident.json",
+        help="Path to a case JSON file. Defaults to examples/cases/bridge_accident.json.",
+    )
     parser.add_argument("--config", help="Optional path to a HotPulse JSON config file.")
+    parser.add_argument(
+        "--mode",
+        default="offline",
+        choices=["offline", "online"],
+        help="Use local providers in offline mode, or keep configured providers in online mode. Defaults to offline.",
+    )
+    parser.add_argument("--search-provider", help="Override search provider, e.g. local, tavily, or serpapi.")
+    parser.add_argument("--fetch-provider", help="Override fetch provider, e.g. local, firecrawl, or http.")
     args = parser.parse_args()
 
     project_dir = Path(__file__).resolve().parents[2]
-    case = load_case(Path(args.case))
+    case_path = Path(args.case).expanduser()
+    if not case_path.is_absolute():
+        case_path = project_dir / case_path
+    case = load_case(case_path)
     config_path = Path(args.config).expanduser().resolve() if args.config else None
     config = load_config(base_dir=project_dir, config_path=config_path)
+    if args.mode == "offline":
+        config = override_config(config, search_provider="local", fetch_provider="local", policy_mode="rule")
+    elif args.search_provider or args.fetch_provider:
+        config = override_config(config, search_provider=args.search_provider, fetch_provider=args.fetch_provider)
     print("== CONFIG ==")
     print(f"search_provider: {config.search.provider}")
     print(f"fetch_provider: {config.fetch.provider}")
     print(f"policy_mode: {config.policy.mode}")
     print(f"config_path: {config_path if config_path else project_dir / 'hotpulse.config.json'}")
-    orchestrator = build_orchestrator(project_dir, config_path=config_path)
+    orchestrator = build_orchestrator(project_dir, config=config)
     result = orchestrator.run(question=case["question"], event_id=case.get("event_id"))
 
     print("== PLAN ==")

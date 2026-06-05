@@ -1,60 +1,16 @@
-"""
-Timeline Tool for HotPulse Agent
-"""
-from typing import List, Dict, Any
-from dataclasses import dataclass, field
+from __future__ import annotations
+
+from collections import defaultdict
+
+from ..schemas import Evidence
+from .base import BaseTool
 
 
-@dataclass
-class TimelineEvent:
-    step: int
-    action: str
-    agent: str
-    detail: str
-    timestamp: str = None
-
-
-class Timeline:
-    def __init__(self):
-        self.events: List[TimelineEvent] = []
-
-    def add_event(self, step: int, action: str, agent: str, detail: str):
-        event = TimelineEvent(
-            step=step,
-            action=action,
-            agent=agent,
-            detail=detail
-        )
-        self.events.append(event)
-
-    def to_dict_list(self) -> List[Dict[str, Any]]:
-        return [
-            {
-                "step": e.step,
-                "action": e.action,
-                "agent": e.agent,
-                "detail": e.detail,
-                "timestamp": e.timestamp
-            }
-            for e in self.events
-        ]
-
-
-class BuildTimelineTool:
-    # 必须加这个 name！
+class BuildTimelineTool(BaseTool):
     name = "build_timeline"
 
-    def __init__(self):
-        self.timeline = Timeline()
-
-    def add_step(self, step: int, action: str, agent: str, detail: str):
-        self.timeline.add_event(step, action, agent, detail)
-
-    def build(self) -> str:
-        return "\n".join([
-            f"Step {e.step}: {e.action} | Agent: {e.agent} | Detail: {e.detail}"
-            for e in self.timeline.events
-        ])
-
-    def get_events(self):
-        return self.timeline.events
+    def run(self, evidence: list[Evidence]) -> dict[str, list[str]]:
+        timeline: dict[str, list[str]] = defaultdict(list)
+        for item in sorted(evidence, key=lambda item: item.published_at):
+            timeline[item.published_at].append(f"{item.source}: {item.claim}")
+        return dict(timeline)
