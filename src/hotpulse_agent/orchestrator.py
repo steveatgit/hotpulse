@@ -119,6 +119,9 @@ class HotPulseOrchestrator:
             "query_history": memory.working.query_history,
             "router_decision_sources": [trace.metadata.get("decision_source", "unknown") for trace in traces],
             "reflection_decisions": reflection_decisions,
+            "report_decision": getattr(self.reporter, "last_metadata", {}),
+            "policy_call_history": getattr(getattr(self.reporter, "policy", None), "call_history", []),
+            "policy_circuit_open_reason": getattr(getattr(self.reporter, "policy", None), "circuit_open_reason", ""),
             "reflections": [asdict(note) for note in memory.reflections],
             "sub_tasks": [asdict(task) for task in plan.sub_tasks],
         }

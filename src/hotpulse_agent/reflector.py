@@ -114,10 +114,11 @@ class HybridReflector:
     def __init__(self, policy: PolicyConfig, fallback: RuleReflector | None = None) -> None:
         self.policy = policy
         self.fallback = fallback or RuleReflector()
-        self.client = LLMClient(policy) if policy.mode in {"llm", "hybrid"} else None
+        self.component = "reflector"
+        self.client = LLMClient(policy) if policy.mode_for(self.component) in {"llm", "hybrid"} else None
 
     def assess(self, plan: Plan, memory: MemoryManager) -> ReflectionResult:
-        if self.policy.mode == "rule":
+        if self.policy.mode_for(self.component) == "rule":
             return self.fallback.assess(plan, memory)
 
         try:
@@ -131,6 +132,7 @@ class HybridReflector:
                 metadata={
                     "decision_source": "llm",
                     "reflector_confidence": decision.confidence,
+                    "policy_call": self.client.last_metadata if self.client else {},
                 },
             )
             return self._apply_policy_gates(result, memory)
@@ -140,6 +142,7 @@ class HybridReflector:
                 **fallback_result.metadata,
                 "decision_source": "rule-fallback",
                 "fallback_reason": f"{exc.__class__.__name__}: {exc}",
+                "policy_call": self.client.last_metadata if self.client else {},
             }
             return fallback_result
 
@@ -147,7 +150,7 @@ class HybridReflector:
         if self.client is None:
             raise ValueError("LLM client is not initialized.")
         user_prompt = build_reflector_user_prompt(plan, memory, memory.working.current_query)
-        raw_text = self.client.chat(REFLECTOR_SYSTEM_PROMPT, user_prompt)
+        raw_text = self.client.chat(REFLECTOR_SYSTEM_PROMPT, user_prompt, component=self.component)
         return parse_reflector_decision(raw_text)
 
     def _apply_policy_gates(self, result: ReflectionResult, memory: MemoryManager) -> ReflectionResult:

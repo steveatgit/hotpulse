@@ -110,16 +110,22 @@ flowchart TD
 
 ## 快速开始
 
-在 `hotpulse_agent` 目录下运行：
+在项目根目录下先做一次可编辑安装：
 
 ```bash
-PYTHONPATH=src python3 -m hotpulse_agent.cli --case examples/cases/bridge_accident.json
+python3 -m pip install -e .
+```
+
+之后可以直接运行：
+
+```bash
+hotpulse --case examples/cases/bridge_accident.json
 ```
 
 如果要显式指定配置文件：
 
 ```bash
-PYTHONPATH=src python3 -m hotpulse_agent.cli \
+hotpulse \
   --case examples/cases/bridge_accident.json \
   --config hotpulse.config.json
 ```
@@ -127,18 +133,12 @@ PYTHONPATH=src python3 -m hotpulse_agent.cli \
 运行评测：
 
 ```bash
-PYTHONPATH=src python3 evals/run_eval.py
+hotpulse-eval --mode offline
 ```
 
 ## Web Demo
 
-启动 Web Demo：
-
-```bash
-PYTHONPATH=src python3 -m hotpulse_agent.web.app
-```
-
-然后打开 `http://127.0.0.1:8000`。
+当前仓库未包含 `hotpulse_agent.web` 入口；如后续恢复 Web Demo，建议同样通过 `pyproject.toml` 注册脚本入口。
 
 当前页面支持：
 
@@ -189,7 +189,7 @@ export HOTPULSE_SEARCH_PROVIDER=tavily
 export TAVILY_API_KEY=tvly-...
 export HOTPULSE_FETCH_PROVIDER=firecrawl
 export FIRECRAWL_API_KEY=fc-...
-PYTHONPATH=src python3 -m hotpulse_agent.cli --case examples/cases/bridge_accident.json
+hotpulse --case examples/cases/bridge_accident.json
 ```
 
 ## 输出内容
@@ -276,8 +276,16 @@ LLM policy 的配置方式有三种，按优先级从高到低分别是：
     "base_url": "https://your-openai-compatible-endpoint/v1",
     "api_key": "sk-***",
     "model": "gpt-4.1-mini",
-    "timeout": 20,
-    "temperature": 0.1
+    "timeout": 8,
+    "temperature": 0.1,
+    "max_tokens": 384,
+    "circuit_breaker_threshold": 2,
+    "components": {
+      "planner": {"mode": "hybrid", "timeout": 8, "max_tokens": 384},
+      "router": {"mode": "rule", "timeout": 3, "max_tokens": 192},
+      "reflector": {"mode": "hybrid", "timeout": 5, "max_tokens": 256},
+      "reporter": {"mode": "hybrid", "timeout": 20, "max_tokens": 1024}
+    }
   }
 }
 ```
@@ -287,6 +295,10 @@ LLM policy 的配置方式有三种，按优先级从高到低分别是：
 - `base_url` 应该配置到 OpenAI-compatible 的 `v1` 根路径，运行时会自动补 `/chat/completions`
 - `api_key`、`base_url`、`model` 三项缺一不可，否则 `hybrid / llm` 仍会回退到规则链路
 - 如果你当前 shell 里已经有 `OPENAI_API_KEY` 和 `OPENAI_BASE_URL`，但还是没有走到 LLM policy，最常见原因就是缺少 `OPENAI_MODEL`
+- `policy.components` 可以覆盖单个模块的 mode、timeout 和 max_tokens；全局 `policy.mode=rule` 会强制所有组件走规则链路
+- 对 `glm-4-flash` 这类轻量模型，推荐让 `router` 保持 `rule`，并把 planner / reflector 的 `max_tokens` 控制在 256-384
+- 连续 LLM 超时达到 `circuit_breaker_threshold` 后，本次运行会自动打开熔断，后续 LLM policy 调用会快速回退到规则链路
+- 运行结果的 `metrics.policy_call_history` 会记录每次 LLM policy 调用的 component、latency_ms、timeout、max_tokens 和错误信息
 
 ## 在线验证结果
 

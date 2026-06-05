@@ -100,10 +100,11 @@ class HybridPlanner:
     def __init__(self, policy: PolicyConfig, fallback: RulePlanner | None = None) -> None:
         self.policy = policy
         self.fallback = fallback or RulePlanner()
-        self.client = LLMClient(policy) if policy.mode in {"llm", "hybrid"} else None
+        self.component = "planner"
+        self.client = LLMClient(policy) if policy.mode_for(self.component) in {"llm", "hybrid"} else None
 
     def create_plan(self, question: str, event_id: str | None) -> Plan:
-        if self.policy.mode == "rule":
+        if self.policy.mode_for(self.component) == "rule":
             return self.fallback.create_plan(question, event_id)
         try:
             decision = self._llm_create_plan(question, event_id)
@@ -112,15 +113,19 @@ class HybridPlanner:
                 goal=question,
                 event_id=event_id,
                 fallback_plan=self.fallback.create_plan(question, event_id),
-                metadata={"decision_source": "llm"},
+                metadata={"decision_source": "llm", "policy_call": self.client.last_metadata if self.client else {}},
             )
         except Exception as exc:
             plan = self.fallback.create_plan(question, event_id)
-            plan.metadata = {"decision_source": "rule-fallback", "fallback_reason": f"{exc.__class__.__name__}: {exc}"}
+            plan.metadata = {
+                "decision_source": "rule-fallback",
+                "fallback_reason": f"{exc.__class__.__name__}: {exc}",
+                "policy_call": self.client.last_metadata if self.client else {},
+            }
             return plan
 
     def replan(self, plan: Plan, memory: MemoryManager) -> Plan:
-        if self.policy.mode == "rule":
+        if self.policy.mode_for(self.component) == "rule":
             return self.fallback.replan(plan, memory)
         try:
             decision = self._llm_replan(plan, memory)
@@ -129,13 +134,14 @@ class HybridPlanner:
                 goal=plan.goal,
                 event_id=plan.event_id,
                 fallback_plan=self.fallback.replan(plan, memory),
-                metadata={"decision_source": "llm"},
+                metadata={"decision_source": "llm", "policy_call": self.client.last_metadata if self.client else {}},
             )
         except Exception as exc:
             fallback_plan = self.fallback.replan(plan, memory)
             fallback_plan.metadata = {
                 "decision_source": "rule-fallback",
                 "fallback_reason": f"{exc.__class__.__name__}: {exc}",
+                "policy_call": self.client.last_metadata if self.client else {},
             }
             return fallback_plan
 
@@ -146,14 +152,14 @@ class HybridPlanner:
         if self.client is None:
             raise ValueError("LLM client is not initialized.")
         user_prompt = build_planner_create_prompt(question, event_id)
-        raw_text = self.client.chat(PLANNER_SYSTEM_PROMPT, user_prompt)
+        raw_text = self.client.chat(PLANNER_SYSTEM_PROMPT, user_prompt, component=self.component)
         return parse_planner_decision(raw_text)
 
     def _llm_replan(self, plan: Plan, memory: MemoryManager) -> PlannerDecision:
         if self.client is None:
             raise ValueError("LLM client is not initialized.")
         user_prompt = build_planner_replan_prompt(plan, memory)
-        raw_text = self.client.chat(PLANNER_SYSTEM_PROMPT, user_prompt)
+        raw_text = self.client.chat(PLANNER_SYSTEM_PROMPT, user_prompt, component=self.component)
         return parse_planner_decision(raw_text)
 
     def _decision_to_plan(
@@ -168,10 +174,24 @@ class HybridPlanner:
         sub_tasks = self._build_sub_tasks(decision.sub_tasks)
         if not sub_tasks:
             raise ValueError("Planner decision did not produce valid sub_tasks.")
+        fallback_tasks = {task.task_id: task for task in fallback_plan.sub_tasks}
+        merged_missing_task_ids: list[str] = []
         task_ids = {task.task_id for task in sub_tasks}
-        required = set(RulePlanner.TASK_LIBRARY.keys())
-        if required - task_ids:
-            raise ValueError(f"Planner decision missed required task ids: {sorted(required - task_ids)}")
+        for task_id in RulePlanner.TASK_LIBRARY.keys():
+            if task_id not in task_ids:
+                merged_missing_task_ids.append(task_id)
+                fallback_task = fallback_tasks.get(task_id)
+                if fallback_task is not None:
+                    sub_tasks.append(fallback_task)
+                else:
+                    description, target = RulePlanner.TASK_LIBRARY[task_id]
+                    sub_tasks.append(SubTask(task_id, description, target))
+        sub_tasks = self._order_sub_tasks(sub_tasks)
+        if merged_missing_task_ids:
+            metadata = {
+                **metadata,
+                "merged_missing_task_ids": merged_missing_task_ids,
+            }
         return Plan(
             goal=goal,
             event_id=event_id,
@@ -191,7 +211,11 @@ class HybridPlanner:
                 continue
             default_description, default_target = RulePlanner.TASK_LIBRARY[task_id]
             status = str(item.get("status", "pending")).strip().lower()
-            if status not in {"pending", "completed", "ready"}:
+            if status in {"planned", "todo", "to_do", "new"}:
+                status = "pending"
+            elif status in {"in_progress", "inprogress", "working"}:
+                status = "pending"
+            elif status not in {"pending", "completed", "ready"}:
                 status = "pending"
             built.append(
                 SubTask(
@@ -203,6 +227,12 @@ class HybridPlanner:
             )
         deduped: dict[str, SubTask] = {}
         for task in built:
+            deduped[task.task_id] = task
+        return self._order_sub_tasks(list(deduped.values()))
+
+    def _order_sub_tasks(self, tasks: list[SubTask]) -> list[SubTask]:
+        deduped: dict[str, SubTask] = {}
+        for task in tasks:
             deduped[task.task_id] = task
         ordered = []
         for task_id in RulePlanner.TASK_LIBRARY.keys():

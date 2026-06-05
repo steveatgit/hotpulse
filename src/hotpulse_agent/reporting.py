@@ -87,16 +87,25 @@ class ReportGenerator:
     def __init__(self, policy: PolicyConfig | None = None) -> None:
         self.fallback = RuleReportGenerator()
         self.policy = policy
-        self.client = LLMClient(policy) if policy and policy.mode in {"llm", "hybrid"} else None
+        self.component = "reporter"
+        self.last_metadata: dict = {}
+        self.client = LLMClient(policy) if policy and policy.mode_for(self.component) in {"llm", "hybrid"} else None
 
     def generate(self, question: str, memory: MemoryManager) -> str:
         if self.client is None:
+            self.last_metadata = {"decision_source": "rule"}
             return self.fallback.generate(question, memory)
         try:
             user_prompt = build_report_user_prompt(question, memory)
-            report = self.client.chat(REPORT_SYSTEM_PROMPT, user_prompt).strip()
+            report = self.client.chat(REPORT_SYSTEM_PROMPT, user_prompt, component=self.component).strip()
             if not report:
                 raise ValueError("Report generator returned empty text.")
+            self.last_metadata = {"decision_source": "llm", "policy_call": self.client.last_metadata}
             return report
-        except Exception:
+        except Exception as exc:
+            self.last_metadata = {
+                "decision_source": "rule-fallback",
+                "fallback_reason": f"{exc.__class__.__name__}: {exc}",
+                "policy_call": self.client.last_metadata if self.client else {},
+            }
             return self.fallback.generate(question, memory)

@@ -8,6 +8,10 @@ version = "0.1.0"
 description = "Interview-oriented agentic intelligence search MVP for breaking event tracking."
 requires-python = ">=3.10"
 
+[project.scripts]
+hotpulse = "hotpulse_agent.cli:main"
+hotpulse-eval = "hotpulse_agent.eval_cli:main"
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 

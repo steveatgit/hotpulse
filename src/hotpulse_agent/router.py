@@ -53,10 +53,11 @@ class HybridToolRouter:
     def __init__(self, policy: PolicyConfig, fallback: RuleToolRouter | None = None) -> None:
         self.policy = policy
         self.fallback = fallback or RuleToolRouter()
-        self.client = LLMClient(policy) if policy.mode in {"llm", "hybrid"} else None
+        self.component = "router"
+        self.client = LLMClient(policy) if policy.mode_for(self.component) in {"llm", "hybrid"} else None
 
     def choose(self, state: AgentState, plan: Plan, memory: MemoryManager) -> ToolChoice:
-        if self.policy.mode == "rule":
+        if self.policy.mode_for(self.component) == "rule":
             return self.fallback.choose(state, plan, memory)
 
         allowed_tools = self._allowed_tools(state, memory)
@@ -73,6 +74,7 @@ class HybridToolRouter:
                     "decision_source": "llm",
                     "router_confidence": llm_choice.confidence,
                     "allowed_tools": allowed_tools,
+                    "policy_call": self.client.last_metadata if self.client else {},
                 },
             )
         except Exception as exc:
@@ -82,6 +84,7 @@ class HybridToolRouter:
                 "decision_source": "rule-fallback",
                 "fallback_reason": f"{exc.__class__.__name__}: {exc}",
                 "allowed_tools": allowed_tools,
+                "policy_call": self.client.last_metadata if self.client else {},
             }
             return fallback_choice
 
@@ -95,7 +98,7 @@ class HybridToolRouter:
         if self.client is None:
             raise ValueError("LLM client is not initialized.")
         user_prompt = build_router_user_prompt(state, plan, memory, allowed_tools)
-        raw_text = self.client.chat(ROUTER_SYSTEM_PROMPT, user_prompt)
+        raw_text = self.client.chat(ROUTER_SYSTEM_PROMPT, user_prompt, component=self.component)
         return parse_router_decision(raw_text)
 
     def _allowed_tools(self, state: AgentState, memory: MemoryManager) -> list[str]:

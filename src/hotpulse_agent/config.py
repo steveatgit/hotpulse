@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 import json
 import os
 from pathlib import Path
@@ -33,6 +33,37 @@ class PolicyConfig:
     model: str = ""
     timeout: float = 20.0
     temperature: float = 0.1
+    max_tokens: int = 1024
+    planner_mode: str = ""
+    router_mode: str = ""
+    reflector_mode: str = ""
+    reporter_mode: str = ""
+    planner_timeout: float = 0.0
+    router_timeout: float = 0.0
+    reflector_timeout: float = 0.0
+    reporter_timeout: float = 0.0
+    planner_max_tokens: int = 0
+    router_max_tokens: int = 0
+    reflector_max_tokens: int = 0
+    reporter_max_tokens: int = 0
+    circuit_breaker_threshold: int = 2
+    consecutive_timeouts: int = 0
+    circuit_open_reason: str = ""
+    call_history: list[dict] = field(default_factory=list)
+
+    def mode_for(self, component: str) -> str:
+        if self.mode.strip().lower() == "rule":
+            return "rule"
+        value = getattr(self, f"{component}_mode", "")
+        return (value or self.mode).strip().lower()
+
+    def timeout_for(self, component: str) -> float:
+        value = float(getattr(self, f"{component}_timeout", 0.0) or 0.0)
+        return value if value > 0 else self.timeout
+
+    def max_tokens_for(self, component: str) -> int:
+        value = int(getattr(self, f"{component}_max_tokens", 0) or 0)
+        return value if value > 0 else self.max_tokens
 
 
 @dataclass
@@ -72,6 +103,22 @@ def load_config(base_dir: Path, config_path: Path | None = None) -> AppConfig:
             temperature=float(
                 _pick(payload, ["policy", "temperature"], os.getenv("HOTPULSE_LLM_TEMPERATURE", "0.1"))
             ),
+            max_tokens=int(_pick(payload, ["policy", "max_tokens"], os.getenv("HOTPULSE_LLM_MAX_TOKENS", "1024"))),
+            planner_mode=_component_pick(payload, "planner", "mode", ""),
+            router_mode=_component_pick(payload, "router", "mode", ""),
+            reflector_mode=_component_pick(payload, "reflector", "mode", ""),
+            reporter_mode=_component_pick(payload, "reporter", "mode", ""),
+            planner_timeout=float(_component_pick(payload, "planner", "timeout", "0")),
+            router_timeout=float(_component_pick(payload, "router", "timeout", "0")),
+            reflector_timeout=float(_component_pick(payload, "reflector", "timeout", "0")),
+            reporter_timeout=float(_component_pick(payload, "reporter", "timeout", "0")),
+            planner_max_tokens=int(_component_pick(payload, "planner", "max_tokens", "0")),
+            router_max_tokens=int(_component_pick(payload, "router", "max_tokens", "0")),
+            reflector_max_tokens=int(_component_pick(payload, "reflector", "max_tokens", "0")),
+            reporter_max_tokens=int(_component_pick(payload, "reporter", "max_tokens", "0")),
+            circuit_breaker_threshold=int(
+                _pick(payload, ["policy", "circuit_breaker_threshold"], os.getenv("HOTPULSE_LLM_CIRCUIT_BREAKER_THRESHOLD", "2"))
+            ),
         ),
     )
 
@@ -81,17 +128,20 @@ def override_config(
     *,
     search_provider: str | None = None,
     fetch_provider: str | None = None,
+    policy_mode: str | None = None,
 ) -> AppConfig:
     return AppConfig(
         search=replace(config.search, provider=(search_provider or config.search.provider).strip()),
         fetch=replace(config.fetch, provider=(fetch_provider or config.fetch.provider).strip()),
-        policy=config.policy,
+        policy=replace(config.policy, mode=(policy_mode or config.policy.mode).strip().lower()),
     )
 
 
 def _load_file_payload(base_dir: Path, config_path: Path | None) -> dict[str, Any]:
     target = config_path or (base_dir / "hotpulse.config.json")
     if not target.exists():
+        if config_path is not None:
+            raise FileNotFoundError(f"Config file not found: {target}")
         return {}
     with target.open("r", encoding="utf-8") as handle:
         payload = json.load(handle)
@@ -120,3 +170,7 @@ def _env_pick(*keys: str) -> str:
         if value:
             return value
     return ""
+
+
+def _component_pick(payload: dict[str, Any], component: str, key: str, fallback: str) -> str:
+    return _pick(payload, ["policy", "components", component, key], fallback)
