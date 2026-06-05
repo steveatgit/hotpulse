@@ -33,6 +33,8 @@ hotpulse-eval --mode offline
 
 Runs offline policy comparisons across `examples/cases/`.
 
+Use `hotpulse --mode online` for the default online provider pair: `search=tavily` and `fetch=firecrawl`.
+
 ## Coding Style & Naming Conventions
 
 Use Python 3.10+ with type hints and `from __future__ import annotations`, matching existing modules. Prefer dataclasses for structured runtime objects. Keep functions small and explicit: planners, routers, reflectors, tools, and reporters should remain separately testable. Use 4-space indentation, `snake_case` for functions and variables, `PascalCase` for classes, and descriptive tool names such as `BuildTimelineTool`.

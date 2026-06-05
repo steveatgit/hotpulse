@@ -191,6 +191,8 @@ export FIRECRAWL_API_KEY=fc-...
 hotpulse --mode online
 ```
 
+`--mode online` 会默认使用 `search=tavily` 和 `fetch=firecrawl`；如需换 provider，可再传 `--search-provider` 或 `--fetch-provider`。
+
 ## 输出内容
 
 CLI 会输出：

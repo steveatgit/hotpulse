@@ -69,6 +69,12 @@ def main() -> None:
     config = load_config(base_dir=project_dir, config_path=config_path)
     if args.mode == "offline":
         config = override_config(config, search_provider="local", fetch_provider="local", policy_mode="rule")
+    elif args.mode == "online":
+        config = override_config(
+            config,
+            search_provider=args.search_provider or "tavily",
+            fetch_provider=args.fetch_provider or "firecrawl",
+        )
     elif args.search_provider or args.fetch_provider:
         config = override_config(config, search_provider=args.search_provider, fetch_provider=args.fetch_provider)
     print("== CONFIG ==")
