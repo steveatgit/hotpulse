@@ -71,6 +71,9 @@ def summarize_result(case_name: str, policy_mode: str, result) -> dict:
         "evidence_count": result.metrics.get("evidence_count", 0),
         "source_diversity": result.metrics.get("source_diversity", 0),
         "coverage": round(result.metrics.get("coverage", 0.0), 3),
+        "cross_verified_evidence": result.metrics.get("cross_verified_evidence", 0),
+        "timeline_event_count": result.metrics.get("timeline_event_count", 0),
+        "event_cluster_count": result.metrics.get("event_cluster_count", 0),
         "plan_source": result.metrics.get("plan_metadata", {}).get("decision_source", "unknown"),
         "router_sources": result.metrics.get("router_decision_sources", []),
         "reflector_sources": reflection_sources,
@@ -116,12 +119,14 @@ def main() -> None:
 
     print(
         "case,policy_mode,state,evidence_count,source_diversity,coverage,plan_source,"
-        "router_sources,reflector_sources,query_rewrites,plan_fallback,router_fallback,reflector_fallback"
+        "cross_verified_evidence,timeline_event_count,event_cluster_count,router_sources,reflector_sources,"
+        "query_rewrites,plan_fallback,router_fallback,reflector_fallback"
     )
     for row in rows:
         print(
             f"{row['case']},{row['policy_mode']},{row['state']},{row['evidence_count']},"
             f"{row['source_diversity']},{row['coverage']},{row['plan_source']},"
+            f"{row['cross_verified_evidence']},{row['timeline_event_count']},{row['event_cluster_count']},"
             f"\"{'|'.join(row['router_sources'])}\",\"{'|'.join(row['reflector_sources'])}\",{row['query_rewrites']},"
             f"{row['plan_fallback']},{row['router_fallback']},{row['reflector_fallback']}"
         )

@@ -21,32 +21,39 @@ class ToolChoice:
 class RuleToolRouter:
     def choose(self, state: AgentState, plan: Plan, memory: MemoryManager) -> ToolChoice:
         if state in {AgentState.INIT, AgentState.PLANNING, AgentState.REPLANNING}:
-            return ToolChoice("search_web", "Need candidate documents before deeper analysis.", {"decision_source": "rule"})
+            return ToolChoice("search_web", "深入分析前需要先获取候选文档。", {"decision_source": "rule"})
 
         if state == AgentState.SEARCHING:
             if not memory.candidate_docs:
-                return ToolChoice("search_web", "No candidate documents collected yet.", {"decision_source": "rule"})
-            return ToolChoice("fetch_page", "Search results are available, fetch top unread source.", {"decision_source": "rule"})
+                return ToolChoice("search_web", "尚未收集到候选文档，继续检索。", {"decision_source": "rule"})
+            return ToolChoice("fetch_page", "已有检索结果，抓取优先级最高的未读来源。", {"decision_source": "rule"})
 
         if state == AgentState.READING:
-            return ToolChoice("extract_evidence", "Fetched page content should be normalized into evidence.", {"decision_source": "rule"})
+            return ToolChoice("extract_evidence", "需要把已抓取页面内容规范化为证据。", {"decision_source": "rule"})
 
         if state == AgentState.EVIDENCE_EXTRACTING:
+            if len(memory.evidence) >= 4 and memory.source_diversity() < 3 and self._has_unread_candidates(memory):
+                return ToolChoice("search_web", "已有基础证据，但独立来源仍不足，继续补充第三方来源。", {"decision_source": "rule"})
             if len(memory.evidence) >= 4 and not memory.built_timeline:
-                return ToolChoice("build_timeline", "Evidence is sufficient to structure a timeline.", {"decision_source": "rule"})
-            return ToolChoice("search_web", "Need more evidence before timeline construction.", {"decision_source": "rule"})
+                return ToolChoice("build_timeline", "证据量已足够，可以组织时间线。", {"decision_source": "rule"})
+            return ToolChoice("search_web", "构建时间线前还需要补充证据。", {"decision_source": "rule"})
 
         if state == AgentState.REFLECTING:
             if len(memory.evidence) < 4 or memory.source_diversity() < 2:
-                return ToolChoice("search_web", "Coverage is not strong enough yet.", {"decision_source": "rule"})
+                return ToolChoice("search_web", "当前覆盖度还不够，需要继续检索。", {"decision_source": "rule"})
+            if memory.source_diversity() < 3 and self._has_unread_candidates(memory):
+                return ToolChoice("search_web", "还有未读独立来源，补充后再综合。", {"decision_source": "rule"})
             if not memory.built_timeline:
-                return ToolChoice("build_timeline", "Coverage is acceptable; structure the event chronology.", {"decision_source": "rule"})
-            return ToolChoice("final_report", "Evidence and timeline are ready for reporting.", {"decision_source": "rule"})
+                return ToolChoice("build_timeline", "覆盖度已基本可用，整理事件时间线。", {"decision_source": "rule"})
+            return ToolChoice("final_report", "证据和时间线已就绪，可以生成报告。", {"decision_source": "rule"})
 
         if state == AgentState.REPORTING:
-            return ToolChoice("final_report", "All conditions are satisfied for reporting.", {"decision_source": "rule"})
+            return ToolChoice("final_report", "报告生成条件已满足。", {"decision_source": "rule"})
 
-        return ToolChoice("search_web", "Fallback to search.", {"decision_source": "rule"})
+        return ToolChoice("search_web", "默认回退到检索。", {"decision_source": "rule"})
+
+    def _has_unread_candidates(self, memory: MemoryManager) -> bool:
+        return any(doc.doc_id not in memory.fetched_docs for doc in memory.candidate_docs)
 
 
 class HybridToolRouter:
@@ -112,6 +119,8 @@ class HybridToolRouter:
             return ["extract_evidence"]
 
         if state == AgentState.EVIDENCE_EXTRACTING:
+            if len(memory.evidence) >= 4 and memory.source_diversity() < 3 and self.fallback._has_unread_candidates(memory):
+                return ["search_web"]
             if len(memory.evidence) >= 4 and not memory.built_timeline:
                 return ["build_timeline", "search_web"]
             return ["search_web"]

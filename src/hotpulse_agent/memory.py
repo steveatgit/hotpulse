@@ -4,7 +4,15 @@ from collections import Counter
 from dataclasses import dataclass, field
 import re
 
-from .schemas import Evidence, ReflectionNote, SearchDocument
+from .schemas import (
+    EventCluster,
+    Evidence,
+    IncrementalSnapshot,
+    ReflectionNote,
+    SearchDocument,
+    SourceAssessment,
+    TimelineEvent,
+)
 
 
 @dataclass
@@ -25,7 +33,10 @@ class MemoryManager:
     reflections: list[ReflectionNote] = field(default_factory=list)
     entities: Counter = field(default_factory=Counter)
     unresolved_questions: list[str] = field(default_factory=list)
-    built_timeline: dict[str, list[str]] = field(default_factory=dict)
+    built_timeline: list[TimelineEvent] = field(default_factory=list)
+    event_clusters: list[EventCluster] = field(default_factory=list)
+    source_assessments: list[SourceAssessment] = field(default_factory=list)
+    incremental_snapshot: IncrementalSnapshot | None = None
 
     def add_candidates(self, docs: list[SearchDocument]) -> None:
         seen = {doc.doc_id for doc in self.candidate_docs}
@@ -47,6 +58,8 @@ class MemoryManager:
         for item in items:
             key = (item.doc_id, item.claim)
             if key not in known:
+                if not item.evidence_id:
+                    item.evidence_id = f"E{len(self.evidence) + 1:03d}"
                 self.evidence.append(item)
                 known.add(key)
 
@@ -63,6 +76,27 @@ class MemoryManager:
     def high_reliability_evidence(self, threshold: float = 0.8) -> list[Evidence]:
         return [item for item in self.evidence if item.reliability >= threshold]
 
+    def primary_source_evidence(self) -> list[Evidence]:
+        return [
+            item
+            for item in self.evidence
+            if item.source_type in {"official", "primary", "regulator", "company"}
+            or item.reliability >= 0.9
+        ]
+
+    def cross_verified_evidence(self) -> list[Evidence]:
+        verified: list[Evidence] = []
+        for item in self.evidence:
+            topic = self._claim_topic(item.claim) or self._claim_signature(item.claim)
+            sources = {
+                other.source
+                for other in self.evidence
+                if (self._claim_topic(other.claim) or self._claim_signature(other.claim)) == topic
+            }
+            if len(sources) >= 2:
+                verified.append(item)
+        return verified
+
     def conflict_claims(self) -> list[str]:
         topics: dict[str, set[str]] = {}
         for item in self.evidence:
@@ -74,11 +108,16 @@ class MemoryManager:
         conflicts = []
         for topic, sentiments in topics.items():
             if {"positive", "negative"}.issubset(sentiments):
-                conflicts.append(f"Sources disagree on {topic}.")
+                conflicts.append(f"不同来源在“{_topic_zh(topic)}”上存在分歧。")
         return conflicts
 
     def evidence_coverage(self) -> float:
-        score = len(self.high_reliability_evidence()) * 0.2 + self.source_diversity() * 0.1
+        score = (
+            len(self.high_reliability_evidence()) * 0.16
+            + self.source_diversity() * 0.1
+            + len(self.cross_verified_evidence()) * 0.08
+            + len(self.built_timeline) * 0.04
+        )
         return min(score, 1.0)
 
     def recent_reflection_messages(self, limit: int = 3) -> list[str]:
@@ -117,13 +156,35 @@ class MemoryManager:
     def summary(self) -> str:
         top_entities = ", ".join(entity for entity, _ in self.entities.most_common(5))
         return (
-            f"candidate_docs={len(self.candidate_docs)}, "
-            f"fetched_docs={len(self.fetched_docs)}, "
-            f"evidence={len(self.evidence)}, "
-            f"source_diversity={self.source_diversity()}, "
-            f"query_rewrites={max(len(self.working.query_history) - 1, 0)}, "
-            f"top_entities=[{top_entities}]"
+            f"候选文档数={len(self.candidate_docs)}，"
+            f"已抓取文档数={len(self.fetched_docs)}，"
+            f"证据数={len(self.evidence)}，"
+            f"来源数={self.source_diversity()}，"
+            f"交叉验证证据数={len(self.cross_verified_evidence())}，"
+            f"事件簇数={len(self.event_clusters)}，"
+            f"检索词改写次数={max(len(self.working.query_history) - 1, 0)}，"
+            f"高频实体=[{top_entities}]"
         )
+
+    def apply_timeline_result(
+        self,
+        timeline: list[TimelineEvent],
+        clusters: list[EventCluster],
+        source_assessments: list[SourceAssessment],
+        snapshot: IncrementalSnapshot,
+    ) -> None:
+        self.built_timeline = timeline
+        self.event_clusters = clusters
+        self.source_assessments = source_assessments
+        self.incremental_snapshot = snapshot
+
+    def _claim_signature(self, claim: str) -> str:
+        tokens = [
+            token
+            for token in re.findall(r"[a-zA-Z0-9\u4e00-\u9fff]+", claim.lower())
+            if len(token) > 1
+        ]
+        return "-".join(tokens[:5])
 
     def _claim_topic(self, claim: str) -> str:
         lowered = claim.lower()
@@ -160,3 +221,14 @@ class MemoryManager:
         if any(re.search(pattern, lowered) for pattern in positive_patterns):
             return "positive"
         return ""
+
+
+def _topic_zh(topic: str) -> str:
+    labels = {
+        "fatalities": "死亡人数",
+        "vehicle_speed": "车辆速度",
+        "staffing": "人员配置",
+        "recall_scope": "召回范围",
+        "cause": "事故原因",
+    }
+    return labels.get(topic, topic)

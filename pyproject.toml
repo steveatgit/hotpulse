@@ -7,6 +7,9 @@ name = "hotpulse-agent"
 version = "0.1.0"
 description = "Interview-oriented agentic intelligence search MVP for breaking event tracking."
 requires-python = ">=3.10"
+dependencies = [
+    "langgraph>=1.0.0",
+]
 
 [project.scripts]
 hotpulse = "hotpulse_agent.cli:main"

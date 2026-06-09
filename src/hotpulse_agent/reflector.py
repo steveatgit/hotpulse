@@ -33,10 +33,10 @@ class RuleReflector:
         unread_candidates = self._has_unread_candidates(memory)
 
         if len(memory.evidence) < 2:
-            notes.append("Evidence remains thin; keep searching.")
+            notes.append("当前证据仍然偏少，需要继续检索。")
 
         if memory.source_diversity() < 2 and len(memory.evidence) >= 2 and not pending_extraction and not unread_candidates:
-            notes.append("Source diversity is weak; widen the source pool.")
+            notes.append("来源多样性不足，需要扩大来源范围。")
             should_rewrite_query = True
 
         conflicts = memory.conflict_claims()
@@ -47,13 +47,13 @@ class RuleReflector:
 
         recent_failures = " ".join(memory.recent_reflection_messages()).lower()
         if ("no candidates" in recent_failures or "no more documents" in recent_failures) and not pending_extraction and not unread_candidates:
-            notes.append("Current retrieval path is saturated; rewrite the query.")
+            notes.append("当前检索路径已接近饱和，需要改写 query。")
             should_rewrite_query = True
 
         if should_rewrite_query:
             next_query = self._rewrite_query(plan.goal, memory)
             if next_query != memory.working.current_query:
-                notes.append(f"Rewrite query to: {next_query}")
+                notes.append(f"将 query 改写为：{next_query}")
 
         return ReflectionResult(
             should_replan=should_replan or should_rewrite_query,

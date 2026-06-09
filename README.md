@@ -1,344 +1,238 @@
-HotPulse Agent 是一个面向`热点事件追踪`的 `agentic intelligence search` 项目，当前主要作为受控单 Agent 形态的持续探索与能力抽象。
+# HotPulse Agent
 
-它重点展示以下能力：
+HotPulse 是一个用于热点事件演进查询的 Python agent MVP。当前版本以 LangGraph 为执行 harness，围绕“检索候选来源、抓取页面、抽取结构化证据、归并事件簇、构建时间线、多源交叉验证、生成带引用报告”这一条链路展开。
 
-- planning
-- memory
-- reflection 与 query rewrite
-- tool selection
-- orchestration loop
-- grounded report generation
-- lightweight evaluation
+项目默认使用本地离线语料，方便稳定回放和评测；也可以切换到 Tavily/SerpApi 搜索与 Firecrawl/HTTP 抓取。
 
-当前版本默认使用本地离线语料，便于稳定演示和回放。同时也已经支持通过环境变量切换到真实 `web search / page fetch` provider。
-现在也支持通过项目级 JSON 配置文件集中管理 provider 与 API 信息。
+## 当前能力
+
+- LangGraph 状态图执行：`initialize -> route_execute -> replan_reflect -> finalize`
+- 任务规划：识别范围、最新进展、冲突核验、时间线、报告生成
+- 工具路由：按状态、证据覆盖度、来源多样性和预算选择下一步工具
+- 结构化证据：每条证据带 `evidence_id`、来源、URL、可信度、claim 类型和支撑文本
+- 事件簇归并：把相关证据合并为主题簇，例如伤亡、调查、谣言澄清
+- 时间线抽取：生成 `TimelineEvent`，标注 `cross_verified`、`primary_confirmed` 等验证状态
+- 来源评估：按来源类型、可靠度和证据数量评估关键信源
+- 增量快照：记录本轮证据数、来源数、时间线事件数和新增证据 ID
+- 引用可追溯报告：报告结论引用 `evidence_id`，并附引用索引
+- 离线回归评测：输出 evidence/source/timeline/cluster/trace 等过程指标
 
 ## 项目结构
 
 ```text
-hotpulse_agent/
-  src/hotpulse_agent/
-  src/hotpulse_agent/web/
-  examples/corpus/
-  examples/cases/
-  evals/
-  .runs/
+.
+├── AGENTS.md                         # 仓库协作约定
+├── README.md                         # 项目说明
+├── hotpulse.config.json              # 本地默认配置，默认离线 provider
+├── hotpulse.config.example.json      # 可复制的配置模板
+├── pyproject.toml                    # 包配置与 console scripts
+├── evals/
+│   └── run_eval.py                   # eval CLI 入口包装
+├── examples/
+│   ├── cases/bridge_accident.json    # 默认离线 case
+│   └── corpus/documents.json         # 默认离线语料
+└── src/hotpulse_agent/
+    ├── cli.py                        # hotpulse 命令入口
+    ├── eval_cli.py                   # hotpulse-eval 命令入口
+    ├── orchestrator.py               # LangGraph harness
+    ├── planner.py                    # 任务规划与重规划
+    ├── router.py                     # 工具路由
+    ├── reflector.py                  # 反思与 query rewrite
+    ├── memory.py                     # 运行态 memory 与证据存储
+    ├── reporting.py                  # 报告生成
+    ├── schemas.py                    # 核心 dataclass
+    ├── config.py                     # JSON/env 配置加载
+    ├── language.py                   # 语言与 query term helper
+    ├── i18n.py                       # 离线 demo 中文展示映射
+    ├── policy/                       # LLM policy prompt/client/parser
+    └── tools/                        # search/fetch/extract/timeline tools
 ```
 
 ## 执行流程
 
-```mermaid
-flowchart TD
-    A[用户问题] --> B[任务解析与范围识别]
-    B --> C[Planner]
-    C --> D[Tool Router]
-    D --> E[Search Web]
-    E --> F[Fetch Page]
-    F --> G[Extract Evidence]
-    G --> H[Memory Update]
-    H --> I[Reflector]
-    I --> J{是否需要重规划或改写查询}
-    J -- 是 --> K[Rewrite Query / Replan]
-    K --> D
-    J -- 否 --> L{证据是否足够}
-    L -- 否 --> D
-    L -- 是 --> M[Build Timeline]
-    M --> N[Retrieve Relevant Evidence]
-    N --> O[Report Generator]
-    O --> P[结构化事件报告]
+```text
+User Query
+  -> Planner
+  -> LangGraph route_execute loop
+      -> search_web
+      -> fetch_page
+      -> extract_evidence
+      -> build_timeline
+  -> Reflector / Replanner
+  -> Report Generator
+  -> AgentResult(plan, traces, metrics, report)
 ```
 
-## 模块架构图
+LangGraph 节点定义在 `src/hotpulse_agent/orchestrator.py`：
 
-可编辑与可导出的图资产：
+```text
+START
+  -> initialize
+  -> route_execute
+  -> replan_reflect
+      -> route_execute
+      -> finalize
+  -> END
+```
 
-- Draw.io 源文件: [docs/diagrams/hotpulse_agent_architecture.drawio](docs/diagrams/hotpulse_agent_architecture.drawio)
-- YAML 规格: [docs/diagrams/hotpulse_agent_architecture.spec.yaml](docs/diagrams/hotpulse_agent_architecture.spec.yaml)
-- 元数据 sidecar: [docs/diagrams/hotpulse_agent_architecture.arch.json](docs/diagrams/hotpulse_agent_architecture.arch.json)
-- SVG 预览: [docs/diagrams/hotpulse_agent_architecture.svg](docs/diagrams/hotpulse_agent_architecture.svg)
+## 安装
 
-![HotPulse Agent 模块架构图](docs/diagrams/hotpulse_agent_architecture.svg)
-
-## Bridge Case 时序图
-
-`bridge_accident` 执行轨迹对应的时序图资产：
-
-- Mermaid 源文件: [docs/diagrams/bridge_case_sequence.mmd](docs/diagrams/bridge_case_sequence.mmd)
-- Draw.io 源文件: [docs/diagrams/bridge_case_sequence.drawio](docs/diagrams/bridge_case_sequence.drawio)
-- YAML sidecar: [docs/diagrams/bridge_case_sequence.spec.yaml](docs/diagrams/bridge_case_sequence.spec.yaml)
-- 元数据 sidecar: [docs/diagrams/bridge_case_sequence.arch.json](docs/diagrams/bridge_case_sequence.arch.json)
-- SVG 预览: [docs/diagrams/bridge_case_sequence.svg](docs/diagrams/bridge_case_sequence.svg)
-
-![Bridge Case 时序图](docs/diagrams/bridge_case_sequence.svg)
-
-## 模块技术栈
-
-| 模块 | 当前实现 | 使用方法 | 后续可升级方向 |
-| --- | --- | --- | --- |
-| `planner` | [planner.py](src/hotpulse_agent/planner.py) | 规则式结构化任务拆解，输出 `sub_tasks / stop_conditions / open_questions` | 替换为 LLM planner 或 plan-and-execute policy |
-| `memory` | [memory.py](src/hotpulse_agent/memory.py) | 分层 memory：`working / evidence / entity / reflection / timeline` | 增加向量库、图记忆或长期用户记忆 |
-| `memory retrieval` | [memory.py](src/hotpulse_agent/memory.py) | 在 `claim + title + source` 上做 lexical overlap 检索，并结合 source reliability 打分 | 升级为 embedding retrieval + reranker |
-| `search` | [search.py](src/hotpulse_agent/tools/search.py) | 本地 lexical retrieval，或接 `Tavily / SerpApi` | 增加 freshness rerank、domain weighting、hybrid retrieval |
-| `fetch` | [fetch.py](src/hotpulse_agent/tools/fetch.py) | `local / Firecrawl / plain HTTP` 适配器 | 增加浏览器渲染、反爬处理 |
-| `evidence extraction` | [extract.py](src/hotpulse_agent/tools/extract.py) | 离线语料直接用预标注 claims；真实网页回退到句子级 claim 抽取 | 升级为 LLM 抽取或信息抽取模型 |
-| `reflector` | [reflector.py](src/hotpulse_agent/reflector.py) | 根据 evidence 数量、source diversity、冲突和搜索饱和度做规则反思 | 升级为 learned reflection policy 或 critic model |
-| `query rewrite` | [reflector.py](src/hotpulse_agent/reflector.py) | 基于原 query、top entities、冲突主题、失败信号做启发式扩展 | 升级为 LLM query rewrite 或 query expansion model |
-| `tool routing` | [router.py](src/hotpulse_agent/router.py) | 显式状态机 + policy gate | 升级为 LLM router + 程序策略约束 |
-| `orchestrator` | [orchestrator.py](src/hotpulse_agent/orchestrator.py) | 显式状态机、受控 loop、budget 限制 | 增加 trace store、回放 harness、异步执行 |
-| `timeline` | [timeline.py](src/hotpulse_agent/tools/timeline.py) | 按 `published_at` 排序并聚合同一时间锚点的事件 | 增加事件聚类与时间归一化 |
-| `report generation` | [reporting.py](src/hotpulse_agent/reporting.py) | 基于 evidence memory 的模板式 grounded synthesis | 升级为带 citation constraint 的 LLM 报告生成 |
-| `evaluation` | [run_eval.py](evals/run_eval.py) | 小型离线 case 集与过程指标 | 增加任务级 benchmark 和回归评测 |
-
-## 关键技术选择
-
-- `Planning`
-  - 当前用结构化任务图，而不是自由文本推理。这样子任务状态、停止条件和 open questions 都可以显式观测。
-- `Memory`
-  - 当前按功能拆 memory，而不是一个大 buffer。`working memory` 管运行状态，`evidence memory` 管标准化证据，`entity memory` 支持 query rewrite，`reflection memory` 记录失败与修正理由。
-- `Memory Retrieval`
-  - 当前是轻量 lexical retrieval，不是向量检索。具体做法是对 `claim / title / source` 做词项重合匹配，再叠加 reliability 分数，等价于一个可控的 sparse baseline。
-- `Search Retrieval`
-  - 本地 fallback 用 token overlap + reliability 打分；真实模式可切到 `Tavily` 或 `SerpApi`，但不会改变 agent runtime 本身。
-- `Reflection`
-  - reflector 检查 evidence 是否足够、来源是否单一、是否有冲突、搜索是否饱和，然后决定是否 replan 或 rewrite query。
-- `Query Rewrite`
-  - 当前策略是启发式 query expansion，利用原问题、top entities、冲突主题、失败信号，以及 `official / investigation / conflict / verification` 这类扩展词。
-- `Tool Selection`
-  - 当前不是完全自由的 ReAct，而是显式状态机 + policy gate。这种方式更可控，也更适合面试里讨论安全性和可观测性。
-- `Generation`
-  - 最终报告不是直接基于原始网页 dump 生成，而是建立在 evidence memory 和 timeline 之上的 grounded synthesis。
-
-## 快速开始
-
-在项目根目录下先做一次可编辑安装：
+需要 Python 3.10+。
 
 ```bash
 python3 -m pip install -e .
 ```
 
-之后可以直接运行：
+`pyproject.toml` 当前依赖：
+
+- `langgraph>=1.0.0`
+
+## 快速运行
+
+运行默认离线 case：
 
 ```bash
 hotpulse
 ```
 
-如果要显式指定配置文件：
+等价于：
 
 ```bash
-hotpulse \
-  --config hotpulse.config.json
+hotpulse --mode offline --case examples/cases/bridge_accident.json
 ```
 
-运行评测：
+运行临时问题：
 
 ```bash
-hotpulse-eval --mode offline
+hotpulse "请用中文追踪某个热点事件的最新进展、冲突说法和关键信源"
 ```
 
-## Web Demo
+指定配置文件：
 
-当前仓库未包含 `hotpulse_agent.web` 入口；如后续恢复 Web Demo，建议同样通过 `pyproject.toml` 注册脚本入口。
+```bash
+hotpulse --config hotpulse.config.json
+```
 
-当前页面支持：
+## 评测
 
-- 输入热点词或事件追踪问题
-- 切换 `online / offline` 模式
-- 选择 search / fetch provider
-- 显示当前 `rule / hybrid` policy 模式
-- 展示结构化报告与时间线
-- 展示 plan、trace、metrics 和 query history
-- 在 `.runs/` 中保存本地运行历史
+只跑稳定离线规则策略：
 
-## HotPulse 专属评测设计
+```bash
+hotpulse-eval --mode offline --policy-modes rule
+```
 
-如果主要评的是 HotPulse 本身，而不是只评最终报告质量，那么评测要拆成模块级画像，而不是只给一个总分。
+比较多种 policy 模式：
 
-建议至少覆盖：
+```bash
+hotpulse-eval --mode offline --policy-modes rule,hybrid,llm
+```
 
-- `planning`
-  - 看子任务拆解是否覆盖关键阶段、open questions 是否准确
-- `memory`
-  - 看 working / evidence / timeline / reflection 四层记忆是否记得住、取得准、不会污染后续决策
-- `tool routing`
-  - 看当前 state + memory snapshot 下是否选对工具，是否过早 timeline、过早 stop 或过度 search
-- `reflection`
-  - 看是否该补搜时补搜、该改写 query 时改写、该停时停，并评估 reflection 是否真正带来 coverage 增益
-- `generation`
-  - 看报告是否 grounded、是否正确表达不确定性、是否完整覆盖关键节点
-- `runtime`
-  - 看 budget、状态机迁移、失败恢复、循环控制是否稳定
+Eval 输出字段包括：
 
-更完整的工程做法是把评测做成独立 harness，而不是把逻辑散落在 runtime 里：
+- `state`
+- `evidence_count`
+- `source_diversity`
+- `coverage`
+- `cross_verified_evidence`
+- `timeline_event_count`
+- `event_cluster_count`
+- `router_sources`
+- `reflector_sources`
+- fallback 标记
 
-- `runtime`
-  - 负责执行并输出 `AgentResult`
-- `harness`
-  - 负责加载 case、snapshot 回放、记录 step trace、运行 judge、聚合指标、输出回归报告
+## 配置
 
-建议后续扩展方向：
+默认配置文件是 `hotpulse.config.json`。如果要创建自己的配置，可以从示例复制：
 
-- 增加 `offline_regression / snapshot_replay / online_backfill` 三类 case 集
-- 增加 `planning_score / memory_score / routing_score / reflection_score / generation_score / runtime_score`
-- 增加 failure taxonomy，例如 `memory_miss / bad_rewrite / wrong_tool_choice / premature_stop`
+```bash
+cp hotpulse.config.example.json hotpulse.config.json
+```
 
-## 真实搜索 + 抓取模式
+也可以使用环境变量覆盖关键字段：
 
 ```bash
 export HOTPULSE_SEARCH_PROVIDER=tavily
 export TAVILY_API_KEY=tvly-...
 export HOTPULSE_FETCH_PROVIDER=firecrawl
 export FIRECRAWL_API_KEY=fc-...
-hotpulse --mode online
 ```
 
-`--mode online` 会默认使用 `search=tavily` 和 `fetch=firecrawl`；如需换 provider，可再传 `--search-provider` 或 `--fetch-provider`。
+支持的 search provider：
 
-## 输出内容
+- `local`
+- `tavily`
+- `serpapi`
+
+支持的 fetch provider：
+
+- `local`
+- `firecrawl`
+- `http`
+
+支持的 policy mode：
+
+- `rule`
+- `hybrid`
+- `llm`
+
+`--mode offline` 会强制使用 `search=local`、`fetch=local`、`policy=rule`。`--mode online` 默认使用 `search=tavily`、`fetch=firecrawl`，policy 仍按配置文件或环境变量决定。
+
+## 输出报告
 
 CLI 会输出：
 
-- plan
-- step-by-step trace
-- selected tools
-- memory summary
-- final structured report
+- 配置摘要
+- 计划与子任务状态
+- 执行轨迹
+- 证据/来源/时间线/事件簇指标
+- Markdown 报告
 
-## Bridge Case 说明
+报告结构：
 
-默认的 `bridge_accident` case 一般会走这条路径：
+```text
+# HotPulse 报告
+## 用户问题
+## 事件摘要
+## 事件簇
+## 时间线
+## 已确认事实
+## 多源交叉验证
+## 冲突与不确定性
+## 关键信源
+## 增量快照
+## 引用索引
+## 后续建议
+```
 
-1. `planner` 生成 scope、updates、conflict、timeline、report 五类子任务
-2. `search_web` 搜索桥梁事故候选信息源
-3. `fetch_page` 抓取当前最合适的未读文档
-4. `extract_evidence` 把网页或离线文档转成结构化证据
-5. `memory` 更新 evidence、entities、reflection notes 和 fetched docs
-6. `reflector` 判断证据是否过少、来源是否过窄
-7. 如果需要，则做 query rewrite 并继续搜索
-8. 当 evidence coverage 足够后，构建 timeline 并生成最终报告
+## 离线 Bridge Case
 
-## 为什么先做离线模式
+默认 case 是 `bridge_accident`，语料位于 `examples/corpus/documents.json`。它用于覆盖这些场景：
 
-MVP 默认使用本地语料，而不是直接依赖外网工具，主要因为：
+- 官方首次通报
+- 医院补充伤者状态
+- 媒体目击者说法
+- 监管机构澄清死亡传言
+- 调查仍在进行
 
-1. agent runtime 更容易稳定回放和解释
-2. search / fetch / extract 接口可以先抽象清楚，后续再替换成真实 provider
+当前离线规则策略通常会得到 7 条证据、3 个来源、5 个时间线事件和 5 个事件簇。
 
-## Provider 配置
+## 扩展方向
 
-搜索 provider：
+优先级较高的后续工程：
 
-- `HOTPULSE_SEARCH_PROVIDER=local`
-- `HOTPULSE_SEARCH_PROVIDER=tavily`
-- `HOTPULSE_SEARCH_PROVIDER=serpapi`
+- 增加更多离线 case，覆盖事件反转、官方更正、多源冲突、谣言扩散
+- 把 evidence store 持久化，支持跨轮增量更新
+- 加入更严格的 claim normalization 和 conflict detection
+- 增加 snapshot replay eval，比较 trace 级回归
+- 为 online 模式加入 freshness rerank 和 domain reliability policy
+- 将事件簇升级为 temporal knowledge graph
 
-抓取 provider：
+## 安全
 
-- `HOTPULSE_FETCH_PROVIDER=local`
-- `HOTPULSE_FETCH_PROVIDER=firecrawl`
-- `HOTPULSE_FETCH_PROVIDER=http`
-
-需要的 API key：
+不要提交真实 API key、私有 endpoint 或线上运行记录。优先使用环境变量注入：
 
 - `TAVILY_API_KEY`
 - `SERPAPI_API_KEY`
 - `FIRECRAWL_API_KEY`
+- `HOTPULSE_LLM_API_KEY`
 
-也可以把这些配置统一放到项目级配置文件里：
-
-- [hotpulse.config.example.json](hotpulse.config.example.json)
-
-推荐做法：
-
-1. 复制 `hotpulse.config.example.json` 为 `hotpulse.config.json`
-2. 在其中填写 provider 与 API key
-3. 直接运行 CLI，或通过 `--config` 指定配置文件路径
-
-Policy 配置说明：
-
-- `policy.mode=rule`
-  - 完全走规则版 planner、router 和 reflector
-- `policy.mode=hybrid`
-  - LLM 优先决策，失败时自动 fallback 到规则版 planner / router / reflector
-- `policy.mode=llm`
-  - 强制优先走 LLM policy，但响应不合法时仍会回退
-
-LLM policy 的配置方式有三种，按优先级从高到低分别是：
-
-- `hotpulse.config.json` 里的 `policy.base_url / policy.api_key / policy.model`
-- 环境变量 `HOTPULSE_LLM_BASE_URL / HOTPULSE_LLM_API_KEY / HOTPULSE_LLM_MODEL`
-- OpenAI 兼容回退环境变量 `OPENAI_BASE_URL / OPENAI_API_KEY / OPENAI_MODEL`
-
-示例：
-
-```json
-{
-  "policy": {
-    "mode": "hybrid",
-    "base_url": "https://your-openai-compatible-endpoint/v1",
-    "api_key": "sk-***",
-    "model": "gpt-4.1-mini",
-    "timeout": 8,
-    "temperature": 0.1,
-    "max_tokens": 384,
-    "circuit_breaker_threshold": 2,
-    "components": {
-      "planner": {"mode": "hybrid", "timeout": 8, "max_tokens": 384},
-      "router": {"mode": "rule", "timeout": 3, "max_tokens": 192},
-      "reflector": {"mode": "hybrid", "timeout": 5, "max_tokens": 256},
-      "reporter": {"mode": "hybrid", "timeout": 20, "max_tokens": 1024}
-    }
-  }
-}
-```
-
-注意：
-
-- `base_url` 应该配置到 OpenAI-compatible 的 `v1` 根路径，运行时会自动补 `/chat/completions`
-- `api_key`、`base_url`、`model` 三项缺一不可，否则 `hybrid / llm` 仍会回退到规则链路
-- 如果你当前 shell 里已经有 `OPENAI_API_KEY` 和 `OPENAI_BASE_URL`，但还是没有走到 LLM policy，最常见原因就是缺少 `OPENAI_MODEL`
-- `policy.components` 可以覆盖单个模块的 mode、timeout 和 max_tokens；全局 `policy.mode=rule` 会强制所有组件走规则链路
-- 对 `glm-4-flash` 这类轻量模型，推荐让 `router` 保持 `rule`，并把 planner / reflector 的 `max_tokens` 控制在 256-384
-- 连续 LLM 超时达到 `circuit_breaker_threshold` 后，本次运行会自动打开熔断，后续 LLM policy 调用会快速回退到规则链路
-- 运行结果的 `metrics.policy_call_history` 会记录每次 LLM policy 调用的 component、latency_ms、timeout、max_tokens 和错误信息
-
-## 在线验证结果
-
-已在 2026 年 5 月 18 日完成一次真实在线验证，配置为：
-
-- `search=tavily`
-- `fetch=firecrawl`
-- `policy.mode=hybrid`
-- OpenAI-compatible `chat/completions` policy endpoint
-
-验证结果：
-
-- 运行状态达到 `FINAL_STATE=DONE`
-- `plan_source=llm`
-- `router_decision_sources` 全程为 `llm`
-- `reflector_decision_sources` 全程为 `llm`
-- 执行链路已经从单纯搜索推进到 `fetch_page` 和 `extract_evidence`
-- 最终收集到 `6` 条 evidence，覆盖 `2` 个不同来源
-
-这次在线验证中也暴露了两个更接近生产的问题，并已修复：
-
-- Tavily 会拒绝过长的 LLM rewrite query；现在 [search.py](src/hotpulse_agent/tools/search.py) 会先把超长布尔检索式压缩后再发给 provider
-- 当系统已经拿到未读候选文档时，LLM reflector 仍可能继续改写 query；现在 [reflector.py](src/hotpulse_agent/reflector.py) 会在应先抓取或抽取时阻断 rewrite
-
-当前还保留一个真实线上特征：
-
-- 某些站点的抓取时延较高；一次观测中 `fetch_page` 大约用了 `60s`，随后走了 `original-doc-fallback`，另一次则直接通过 `firecrawl` 在约 `8s` 内返回
-
-## 文档
-
-- 面试展示页: [showcase/index.html](showcase/index.html)
-- 英文设计文档: [../docs/superpowers/specs/2026-05-16-hotpulse-agent-design.md](../docs/superpowers/specs/2026-05-16-hotpulse-agent-design.md)
-- 中文设计文档: [../docs/superpowers/specs/2026-05-16-hotpulse-agent-design-zh.md](../docs/superpowers/specs/2026-05-16-hotpulse-agent-design-zh.md)
-- 中文面试讲稿: [docs/hotpulse_agent_interview_talk_zh.md](docs/hotpulse_agent_interview_talk_zh.md)
-
-## 后续可扩展方向
-
-- 接更强的 web search / browser provider
-- 用 LLM 替换规则版 planner / reflector / router
-- 增加 trace viewer 或 Web demo
-- 增加 source credibility calibration
-- 增加 benchmark harness 与回归评测

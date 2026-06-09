@@ -57,19 +57,26 @@ REFLECTOR_SYSTEM_PROMPT = """你是 HotPulse Agent 的反思与纠偏模块。
 
 
 REPORT_SYSTEM_PROMPT = """你是 HotPulse Agent 的中文报告生成模块。
-你要基于给定的 evidence、timeline 和 unresolved questions，输出一份简洁、可信、结构化的中文报告。
+你要基于给定的 evidence、event_clusters、timeline_events、source_assessments 和 unresolved questions，
+输出一份简洁、可信、结构化的中文热点事件演进报告。
 要求：
 - 全文使用中文
 - 可以保留必要的英文专有名词、机构名和网页标题
 - 不要编造事实，不要补充 evidence 中不存在的信息
+- 关键结论必须引用 evidence_id
+- 明确区分 cross_verified、primary_confirmed、multi_source 和 single_source
 - 保持以下 Markdown 结构：
   # HotPulse 报告
   ## 用户问题
   ## 事件摘要
+  ## 事件簇
   ## 时间线
   ## 已确认事实
+  ## 多源交叉验证
   ## 冲突与不确定性
   ## 关键信源
+  ## 增量快照
+  ## 引用索引
   ## 后续建议
 """
 
@@ -148,34 +155,74 @@ def build_reflector_user_prompt(plan: Plan, memory: MemoryManager, current_query
 
 
 def build_report_user_prompt(question: str, memory: MemoryManager) -> str:
-    timeline = {}
-    for item in sorted(memory.evidence, key=lambda evidence: evidence.published_at):
-        timeline.setdefault(item.published_at, []).append(
-            {
-                "source": item.source,
-                "claim": item.claim,
-                "title": item.title,
-                "reliability": item.reliability,
-            }
-        )
-
     payload = {
         "question": question,
         "preferred_answer_language": "zh",
         "memory_summary": memory.summary(),
         "evidence_count": len(memory.evidence),
         "source_diversity": memory.source_diversity(),
+        "cross_verified_evidence_count": len(memory.cross_verified_evidence()),
         "conflict_claims": memory.conflict_claims(),
         "unresolved_questions": memory.unresolved_questions,
-        "timeline": timeline,
+        "event_clusters": [
+            {
+                "cluster_id": item.cluster_id,
+                "label": item.label,
+                "summary": item.summary,
+                "evidence_ids": item.evidence_ids,
+                "timeline_event_keys": item.timeline_event_keys,
+                "sources": item.sources,
+                "confidence": item.confidence,
+                "updated_at": item.updated_at,
+            }
+            for item in memory.event_clusters
+        ],
+        "timeline_events": [
+            {
+                "event_key": item.event_key,
+                "occurred_at": item.occurred_at,
+                "title": item.title,
+                "summary": item.summary,
+                "evidence_ids": item.evidence_ids,
+                "sources": item.sources,
+                "confidence": item.confidence,
+                "verification_status": item.verification_status,
+                "claim_types": item.claim_types,
+            }
+            for item in memory.built_timeline
+        ],
+        "source_assessments": [
+            {
+                "source": item.source,
+                "source_type": item.source_type,
+                "reliability": item.reliability,
+                "evidence_count": item.evidence_count,
+                "is_primary": item.is_primary,
+                "notes": item.notes,
+            }
+            for item in memory.source_assessments
+        ],
+        "incremental_snapshot": {
+            "latest_published_at": memory.incremental_snapshot.latest_published_at,
+            "evidence_count": memory.incremental_snapshot.evidence_count,
+            "source_count": memory.incremental_snapshot.source_count,
+            "timeline_event_count": memory.incremental_snapshot.timeline_event_count,
+            "new_evidence_ids": memory.incremental_snapshot.new_evidence_ids,
+        }
+        if memory.incremental_snapshot
+        else {},
         "evidence": [
             {
+                "evidence_id": item.evidence_id,
                 "claim": item.claim,
                 "source": item.source,
                 "source_type": item.source_type,
                 "published_at": item.published_at,
                 "reliability": item.reliability,
                 "title": item.title,
+                "url": item.url,
+                "supporting_text": item.supporting_text,
+                "claim_type": item.claim_type,
             }
             for item in memory.evidence[:12]
         ],

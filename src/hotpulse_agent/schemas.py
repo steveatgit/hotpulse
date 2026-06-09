@@ -70,6 +70,65 @@ class Evidence:
     claim: str
     supporting_text: str
     reliability: float
+    evidence_id: str = ""
+    url: str = ""
+    entities: list[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
+    claim_type: str = "update"
+
+
+@dataclass
+class SourceAssessment:
+    source: str
+    source_type: str
+    reliability: float
+    evidence_count: int
+    is_primary: bool
+    notes: list[str] = field(default_factory=list)
+
+
+@dataclass
+class TimelineEvent:
+    event_key: str
+    occurred_at: str
+    title: str
+    summary: str
+    evidence_ids: list[str]
+    sources: list[str]
+    confidence: float
+    verification_status: str
+    claim_types: list[str] = field(default_factory=list)
+
+
+@dataclass
+class EventCluster:
+    cluster_id: str
+    label: str
+    summary: str
+    evidence_ids: list[str]
+    timeline_event_keys: list[str]
+    sources: list[str]
+    entities: list[str]
+    confidence: float
+    updated_at: str
+
+
+@dataclass
+class IncrementalSnapshot:
+    latest_published_at: str
+    evidence_count: int
+    source_count: int
+    timeline_event_count: int
+    new_evidence_ids: list[str] = field(default_factory=list)
+    open_questions: list[str] = field(default_factory=list)
+
+
+@dataclass
+class TimelineBuildResult:
+    events: list[TimelineEvent]
+    clusters: list[EventCluster]
+    source_assessments: list[SourceAssessment]
+    snapshot: IncrementalSnapshot
 
 
 @dataclass

@@ -1,6 +1,14 @@
 __pycache__/
 *.py[cod]
 *.egg-info/
-.DS_Store
-.hotpulse_env
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+build/
+dist/
+.venv/
+venv/
 .env
+.hotpulse_env
+.runs/
+.DS_Store

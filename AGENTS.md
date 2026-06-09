@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-HotPulse is a Python agentic search MVP using a `src` layout. Core code lives in `src/hotpulse_agent/`: orchestration in `orchestrator.py`, state and dataclasses in `schemas.py`, CLI wiring in `cli.py`, planning/reflection/routing in their named modules, and tool implementations under `tools/`. LLM policy helpers live in `policy/`. Offline demo data is in `examples/corpus/`, runnable cases are in `examples/cases/`, and the lightweight evaluation harness is `evals/run_eval.py`.
+HotPulse is a Python agentic search MVP for hot event evolution tracking, using a `src` layout and LangGraph for the runtime harness. Core code lives in `src/hotpulse_agent/`: the LangGraph orchestration graph is in `orchestrator.py`, state and dataclasses are in `schemas.py`, CLI wiring is in `cli.py`, planning/reflection/routing live in their named modules, and tool implementations are under `tools/`. LLM policy helpers live in `policy/`. Offline demo data is in `examples/corpus/`, runnable cases are in `examples/cases/`, and the lightweight evaluation harness is `evals/run_eval.py`.
 
 ## Build, Test, and Development Commands
 
@@ -21,6 +21,12 @@ hotpulse
 Runs the default local case and prints config, plan, trace, metrics, and final report.
 
 ```bash
+hotpulse --mode online "请用中文检索并梳理某个热点事件的最新进展"
+```
+
+Runs an ad-hoc online query with the default online provider pair: `search=tavily` and `fetch=firecrawl`.
+
+```bash
 hotpulse \
   --config hotpulse.config.json
 ```
@@ -33,15 +39,13 @@ hotpulse-eval --mode offline
 
 Runs offline policy comparisons across `examples/cases/`.
 
-Use `hotpulse --mode online` for the default online provider pair: `search=tavily` and `fetch=firecrawl`.
-
 ## Coding Style & Naming Conventions
 
-Use Python 3.10+ with type hints and `from __future__ import annotations`, matching existing modules. Prefer dataclasses for structured runtime objects. Keep functions small and explicit: planners, routers, reflectors, tools, and reporters should remain separately testable. Use 4-space indentation, `snake_case` for functions and variables, `PascalCase` for classes, and descriptive tool names such as `BuildTimelineTool`.
+Use Python 3.10+ with type hints and `from __future__ import annotations`, matching existing modules. Prefer dataclasses for structured runtime objects and keep LangGraph state updates explicit. Keep functions small and testable: planners, routers, reflectors, tools, reporters, and graph nodes should remain separately understandable. Use 4-space indentation, `snake_case` for functions and variables, `PascalCase` for classes, and descriptive tool names such as `BuildTimelineTool`.
 
 ## Testing Guidelines
 
-There is no dedicated unit-test suite yet. Treat `evals/run_eval.py --mode offline` as the required regression check before changes that affect planning, routing, memory, extraction, or reporting. Add new case JSON files under `examples/cases/` and matching documents in `examples/corpus/documents.json` when covering new event patterns. Keep eval output deterministic in offline mode.
+There is no dedicated unit-test suite yet. Treat `python3 -m compileall src evals` and `evals/run_eval.py --mode offline --policy-modes rule` as the required regression checks before changes that affect planning, routing, memory, extraction, timeline construction, LangGraph orchestration, or reporting. Add new case JSON files under `examples/cases/` and matching documents in `examples/corpus/documents.json` when covering new event patterns. Keep eval output deterministic in offline mode.
 
 ## Commit & Pull Request Guidelines
 

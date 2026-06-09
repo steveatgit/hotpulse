@@ -46,9 +46,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run HotPulse Agent on a local case.")
     parser.add_argument(
         "--case",
-        default="examples/cases/bridge_accident.json",
-        help="Path to a case JSON file. Defaults to examples/cases/bridge_accident.json.",
+        help="Path to a case JSON file. Defaults to examples/cases/bridge_accident.json when no query is provided.",
     )
+    parser.add_argument("--query", help="Ad-hoc event tracking question. Overrides --case when provided.")
+    parser.add_argument("question", nargs="?", help="Ad-hoc event tracking question. Equivalent to --query.")
     parser.add_argument("--config", help="Optional path to a HotPulse JSON config file.")
     parser.add_argument(
         "--mode",
@@ -61,10 +62,16 @@ def main() -> None:
     args = parser.parse_args()
 
     project_dir = Path(__file__).resolve().parents[2]
-    case_path = Path(args.case).expanduser()
-    if not case_path.is_absolute():
-        case_path = project_dir / case_path
-    case = load_case(case_path)
+    query = args.query or args.question
+    event_id = None
+    if query:
+        case = {"question": query}
+    else:
+        case_path = Path(args.case or "examples/cases/bridge_accident.json").expanduser()
+        if not case_path.is_absolute():
+            case_path = project_dir / case_path
+        case = load_case(case_path)
+        event_id = case.get("event_id")
     config_path = Path(args.config).expanduser().resolve() if args.config else None
     config = load_config(base_dir=project_dir, config_path=config_path)
     if args.mode == "offline":
@@ -77,31 +84,43 @@ def main() -> None:
         )
     elif args.search_provider or args.fetch_provider:
         config = override_config(config, search_provider=args.search_provider, fetch_provider=args.fetch_provider)
-    print("== CONFIG ==")
-    print(f"search_provider: {config.search.provider}")
-    print(f"fetch_provider: {config.fetch.provider}")
+    print("== 配置 ==")
+    print(f"检索 provider: {config.search.provider}")
+    print(f"抓取 provider: {config.fetch.provider}")
     print(f"policy_mode: {config.policy.mode}")
-    print(f"config_path: {config_path if config_path else project_dir / 'hotpulse.config.json'}")
+    print(f"配置文件: {config_path if config_path else project_dir / 'hotpulse.config.json'}")
     orchestrator = build_orchestrator(project_dir, config=config)
-    result = orchestrator.run(question=case["question"], event_id=case.get("event_id"))
+    result = orchestrator.run(question=case["question"], event_id=event_id)
 
-    print("== PLAN ==")
+    print("== 计划 ==")
     print(result.plan.goal)
     for task in result.plan.sub_tasks:
         print(f"- {task.task_id}: {task.description} [{task.status}]")
 
-    print("\n== TRACE ==")
+    print("\n== 执行轨迹 ==")
     for trace in result.traces:
         print(
-            f"step={trace.step_index} state={trace.state} tool={trace.tool_name} "
-            f"reason={trace.reason} obs={trace.observation}"
+            f"步骤={trace.step_index} state={trace.state} tool={trace.tool_name} "
+            f"原因={trace.reason} 观察={trace.observation}"
         )
 
-    print("\n== METRICS ==")
-    for key, value in result.metrics.items():
-        print(f"{key}: {value}")
+    print("\n== 指标 ==")
+    metrics = result.metrics
+    print(f"证据数量: {metrics.get('evidence_count')}")
+    print(f"来源数量: {metrics.get('source_diversity')}")
+    print(f"覆盖度: {metrics.get('coverage')}")
+    print(f"高可信证据数: {metrics.get('high_reliability_evidence')}")
+    print(f"交叉验证证据数: {metrics.get('cross_verified_evidence')}")
+    print(f"时间线事件数: {metrics.get('timeline_event_count')}")
+    print(f"事件簇数: {metrics.get('event_cluster_count')}")
+    print(f"计划置信度: {metrics.get('plan_confidence')}")
+    print(f"记忆摘要: {metrics.get('memory_summary')}")
+    print(f"检索词历史: {' -> '.join(metrics.get('query_history', []))}")
+    print(f"路由决策来源: {', '.join(metrics.get('router_decision_sources', []))}")
+    circuit_reason = metrics.get("policy_circuit_open_reason") or "无"
+    print(f"策略熔断原因: {circuit_reason}")
 
-    print("\n== REPORT ==")
+    print("\n== 报告 ==")
     print(result.report)
 
 

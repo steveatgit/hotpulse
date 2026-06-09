@@ -13,11 +13,11 @@ from .schemas import Plan, SubTask
 
 class RulePlanner:
     TASK_LIBRARY = {
-        "scope": ("Identify event scope, timeframe, and aliases", "scope"),
-        "updates": ("Collect the newest updates from reliable sources", "recent_updates"),
-        "conflicts": ("Check whether key claims are disputed", "conflict_resolution"),
-        "timeline": ("Build a compact event timeline", "timeline"),
-        "report": ("Generate a grounded intelligence report", "report"),
+        "scope": ("识别事件范围、时间窗口和可能别名", "scope"),
+        "updates": ("收集可靠来源中的最新关键进展", "recent_updates"),
+        "conflicts": ("核对关键说法是否存在冲突或争议", "conflict_resolution"),
+        "timeline": ("构建紧凑事件时间线", "timeline"),
+        "report": ("生成有证据支撑的情报报告", "report"),
     }
 
     def create_plan(self, question: str, event_id: str | None) -> Plan:
@@ -26,16 +26,16 @@ class RulePlanner:
             for task_id, (description, target) in self.TASK_LIBRARY.items()
         ]
         scope = self._infer_scope(question)
-        open_questions = ["What happened most recently?", "Which claims remain unverified?"]
+        open_questions = ["最近发生了什么新进展？", "哪些说法仍未被验证？"]
         return Plan(
             goal=question,
             event_id=event_id,
             scope=scope,
             sub_tasks=sub_tasks,
             stop_conditions=[
-                "At least 4 evidence items collected",
-                "At least 2 high-reliability sources collected",
-                "Timeline can be reconstructed",
+                "至少收集 4 条证据",
+                "至少覆盖 2 个高可信来源",
+                "能够重建基本时间线",
             ],
             open_questions=open_questions,
             confidence=0.6,
@@ -43,17 +43,27 @@ class RulePlanner:
         )
 
     def replan(self, plan: Plan, memory: MemoryManager) -> Plan:
-        open_questions = list(plan.open_questions)
+        open_questions: list[str] = []
+        if not memory.evidence:
+            open_questions.extend(plan.open_questions)
         if memory.top_entities():
-            open_questions.append(f"Can the update be tied more clearly to {memory.top_entities(1)[0]}?")
+            open_questions.append(f"能否把最新进展更清晰地关联到 {memory.top_entities(1)[0]}？")
         if memory.source_diversity() < 2:
-            open_questions.append("Need more diverse sources.")
+            open_questions.append("需要补充更多不同来源。")
+        elif memory.source_diversity() < 3 and len(memory.candidate_docs) > len(memory.fetched_docs):
+            open_questions.append("如步骤预算允许，补充第三个独立来源以增强交叉验证。")
         if memory.conflict_claims():
-            open_questions.append("Resolve conflicting claims with independent evidence.")
+            open_questions.append("需要用独立证据核对冲突说法。")
+        if len(memory.cross_verified_evidence()) < 2 and len(memory.evidence) >= 3:
+            open_questions.append("需要补充可交叉验证的独立来源。")
         if len(memory.evidence) < 4:
-            open_questions.append("Need additional evidence before reporting.")
+            open_questions.append("生成报告前还需要补充证据。")
         if not memory.built_timeline and len(memory.evidence) >= 3:
-            open_questions.append("Convert evidence into a compact timeline.")
+            open_questions.append("需要把现有证据整理为紧凑时间线。")
+        if not memory.event_clusters and memory.built_timeline:
+            open_questions.append("需要把相关时间点归并为事件簇。")
+        if self.should_stop(memory):
+            open_questions = ["继续关注官方机构是否发布最终调查更新。"]
         open_questions = list(dict.fromkeys(open_questions))
 
         updated_sub_tasks = []
@@ -65,7 +75,7 @@ class RulePlanner:
                 new_status = "completed"
             elif task.task_id == "conflicts" and not memory.conflict_claims() and len(memory.evidence) >= 3:
                 new_status = "completed"
-            elif task.task_id == "timeline" and len(memory.evidence) >= 4:
+            elif task.task_id == "timeline" and memory.built_timeline and memory.event_clusters:
                 new_status = "completed"
             elif task.task_id == "report" and self.should_stop(memory):
                 new_status = "ready"
@@ -86,14 +96,17 @@ class RulePlanner:
     def should_stop(self, memory: MemoryManager) -> bool:
         enough_evidence = len(memory.evidence) >= 4
         enough_sources = len(memory.high_reliability_evidence()) >= 2
-        enough_diversity = memory.source_diversity() >= 2
-        return enough_evidence and enough_sources and enough_diversity
+        unread_candidates = any(doc.doc_id not in memory.fetched_docs for doc in memory.candidate_docs)
+        enough_diversity = memory.source_diversity() >= 3 or (memory.source_diversity() >= 2 and not unread_candidates)
+        enough_timeline = bool(memory.built_timeline)
+        enough_verification = len(memory.cross_verified_evidence()) >= 2 or len(memory.primary_source_evidence()) >= 1
+        return enough_evidence and enough_sources and enough_diversity and enough_timeline and enough_verification
 
     def _infer_scope(self, question: str) -> str:
         lowered = question.lower()
         if "24" in lowered or "latest" in lowered or "recent" in lowered:
-            return "Focus on the last 24 hours and major unresolved issues."
-        return "Focus on major developments, evidence, and unresolved issues."
+            return "聚焦最近 24 小时内的关键进展和主要未决问题。"
+        return "聚焦主要进展、证据和仍未解决的问题。"
 
 
 class HybridPlanner:

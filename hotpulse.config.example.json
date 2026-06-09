@@ -6,8 +6,8 @@
     "tavily_topic": "news",
     "serpapi_api_key": "",
     "serpapi_engine": "google",
-    "serpapi_gl": "cn",
-    "serpapi_hl": "zh-cn"
+    "serpapi_gl": "us",
+    "serpapi_hl": "en"
   },
   "fetch": {
     "provider": "local",
@@ -18,9 +18,9 @@
     "base_url": "",
     "api_key": "",
     "model": "",
-    "timeout": 8,
+    "timeout": 20,
     "temperature": 0.1,
-    "max_tokens": 384,
+    "max_tokens": 1024,
     "circuit_breaker_threshold": 2,
     "components": {
       "planner": {
