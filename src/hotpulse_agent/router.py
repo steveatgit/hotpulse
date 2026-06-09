@@ -32,14 +32,14 @@ class RuleToolRouter:
             return ToolChoice("extract_evidence", "需要把已抓取页面内容规范化为证据。", {"decision_source": "rule"})
 
         if state == AgentState.EVIDENCE_EXTRACTING:
-            if len(memory.evidence) >= 4 and memory.source_diversity() < 3 and self._has_unread_candidates(memory):
+            if self._ready_for_timeline(memory) and not memory.built_timeline:
+                return ToolChoice("build_timeline", "已有多源证据，可以先组织时间线。", {"decision_source": "rule"})
+            if len(memory.evidence) >= 3 and memory.source_diversity() < 2 and self._has_unread_candidates(memory):
                 return ToolChoice("search_web", "已有基础证据，但独立来源仍不足，继续补充第三方来源。", {"decision_source": "rule"})
-            if len(memory.evidence) >= 4 and not memory.built_timeline:
-                return ToolChoice("build_timeline", "证据量已足够，可以组织时间线。", {"decision_source": "rule"})
             return ToolChoice("search_web", "构建时间线前还需要补充证据。", {"decision_source": "rule"})
 
         if state == AgentState.REFLECTING:
-            if len(memory.evidence) < 4 or memory.source_diversity() < 2:
+            if not self._ready_for_timeline(memory):
                 return ToolChoice("search_web", "当前覆盖度还不够，需要继续检索。", {"decision_source": "rule"})
             if memory.source_diversity() < 3 and self._has_unread_candidates(memory):
                 return ToolChoice("search_web", "还有未读独立来源，补充后再综合。", {"decision_source": "rule"})
@@ -54,6 +54,9 @@ class RuleToolRouter:
 
     def _has_unread_candidates(self, memory: MemoryManager) -> bool:
         return any(doc.doc_id not in memory.fetched_docs for doc in memory.candidate_docs)
+
+    def _ready_for_timeline(self, memory: MemoryManager) -> bool:
+        return len(memory.evidence) >= 4 or (len(memory.evidence) >= 3 and memory.source_diversity() >= 2)
 
 
 class HybridToolRouter:
@@ -119,14 +122,14 @@ class HybridToolRouter:
             return ["extract_evidence"]
 
         if state == AgentState.EVIDENCE_EXTRACTING:
-            if len(memory.evidence) >= 4 and memory.source_diversity() < 3 and self.fallback._has_unread_candidates(memory):
-                return ["search_web"]
-            if len(memory.evidence) >= 4 and not memory.built_timeline:
+            if self.fallback._ready_for_timeline(memory) and not memory.built_timeline:
                 return ["build_timeline", "search_web"]
+            if len(memory.evidence) >= 3 and memory.source_diversity() < 2 and self.fallback._has_unread_candidates(memory):
+                return ["search_web"]
             return ["search_web"]
 
         if state == AgentState.REFLECTING:
-            if len(memory.evidence) < 4 or memory.source_diversity() < 2:
+            if not self.fallback._ready_for_timeline(memory):
                 return ["search_web"]
             if not memory.built_timeline:
                 return ["build_timeline", "search_web"]

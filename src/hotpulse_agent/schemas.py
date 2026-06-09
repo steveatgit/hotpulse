@@ -119,7 +119,11 @@ class IncrementalSnapshot:
     evidence_count: int
     source_count: int
     timeline_event_count: int
+    previous_evidence_count: int = 0
+    previous_source_count: int = 0
+    previous_timeline_event_count: int = 0
     new_evidence_ids: list[str] = field(default_factory=list)
+    new_timeline_event_keys: list[str] = field(default_factory=list)
     open_questions: list[str] = field(default_factory=list)
 
 

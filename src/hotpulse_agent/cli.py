@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from .config import AppConfig, load_config, override_config
+from .event_store import EventArchiveStore
 from .orchestrator import HotPulseOrchestrator
 from .planner import Planner
 from .reflector import Reflector
@@ -21,6 +22,8 @@ def build_orchestrator(
     base_dir: Path,
     config_path: Path | None = None,
     config: AppConfig | None = None,
+    event_store_enabled: bool = True,
+    event_store_dir: Path | None = None,
 ) -> HotPulseOrchestrator:
     config = config or load_config(base_dir=base_dir, config_path=config_path)
     registry = ToolRegistry()
@@ -34,6 +37,7 @@ def build_orchestrator(
         router=ToolRouter(config.policy),
         registry=registry,
         reporter=ReportGenerator(config.policy),
+        event_store=EventArchiveStore(event_store_dir or base_dir / ".runs" / "events") if event_store_enabled else None,
     )
 
 
@@ -59,6 +63,11 @@ def main() -> None:
     )
     parser.add_argument("--search-provider", help="Override search provider, e.g. local, tavily, or serpapi.")
     parser.add_argument("--fetch-provider", help="Override fetch provider, e.g. local, firecrawl, or http.")
+    parser.add_argument("--no-event-store", action="store_true", help="Disable local event archive persistence.")
+    parser.add_argument(
+        "--event-store-dir",
+        help="Directory for local event archives. Defaults to .runs/events.",
+    )
     args = parser.parse_args()
 
     project_dir = Path(__file__).resolve().parents[2]
@@ -89,7 +98,13 @@ def main() -> None:
     print(f"抓取 provider: {config.fetch.provider}")
     print(f"policy_mode: {config.policy.mode}")
     print(f"配置文件: {config_path if config_path else project_dir / 'hotpulse.config.json'}")
-    orchestrator = build_orchestrator(project_dir, config=config)
+    event_store_dir = Path(args.event_store_dir).expanduser().resolve() if args.event_store_dir else None
+    orchestrator = build_orchestrator(
+        project_dir,
+        config=config,
+        event_store_enabled=not args.no_event_store,
+        event_store_dir=event_store_dir,
+    )
     result = orchestrator.run(question=case["question"], event_id=event_id)
 
     print("== 计划 ==")
@@ -109,10 +124,15 @@ def main() -> None:
     print(f"证据数量: {metrics.get('evidence_count')}")
     print(f"来源数量: {metrics.get('source_diversity')}")
     print(f"覆盖度: {metrics.get('coverage')}")
+    print(f"引用覆盖率: {metrics.get('citation_coverage')}")
     print(f"高可信证据数: {metrics.get('high_reliability_evidence')}")
     print(f"交叉验证证据数: {metrics.get('cross_verified_evidence')}")
     print(f"时间线事件数: {metrics.get('timeline_event_count')}")
     print(f"事件簇数: {metrics.get('event_cluster_count')}")
+    print(f"历史档案: {'已加载' if metrics.get('archive_loaded') else '未加载'}")
+    print(f"新增证据数: {metrics.get('new_evidence_count')}")
+    print(f"新增时间线事件数: {metrics.get('new_timeline_event_count')}")
+    print(f"事件档案: {metrics.get('archive_path') or '未保存'}")
     print(f"计划置信度: {metrics.get('plan_confidence')}")
     print(f"记忆摘要: {metrics.get('memory_summary')}")
     print(f"检索词历史: {' -> '.join(metrics.get('query_history', []))}")

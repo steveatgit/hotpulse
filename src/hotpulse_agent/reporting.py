@@ -156,8 +156,14 @@ class RuleReportGenerator:
             return []
         return [
             f"- 最新发布时间：{snapshot.latest_published_at or '未知'}",
+            (
+                "- 上轮证据/来源/时间线事件："
+                f"{snapshot.previous_evidence_count}/{snapshot.previous_source_count}/"
+                f"{snapshot.previous_timeline_event_count}"
+            ),
             f"- 当前证据/来源/时间线事件：{snapshot.evidence_count}/{snapshot.source_count}/{snapshot.timeline_event_count}",
             f"- 本轮新增证据：{', '.join(snapshot.new_evidence_ids) or '无'}",
+            f"- 本轮新增时间线事件：{', '.join(snapshot.new_timeline_event_keys) or '无'}",
         ]
 
 

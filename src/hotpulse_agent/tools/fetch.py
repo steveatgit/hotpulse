@@ -21,6 +21,7 @@ class FetchPageTool(BaseTool):
         self.firecrawl_api_key = (
             config.fetch.firecrawl_api_key if config is not None else os.getenv("FIRECRAWL_API_KEY", "")
         )
+        self.jina_api_key = config.fetch.jina_api_key if config is not None else os.getenv("JINA_API_KEY", "")
 
     def run(self, docs: list[SearchDocument], fetched_doc_ids: set[str]) -> dict | None:
         for doc in docs:
@@ -34,6 +35,18 @@ class FetchPageTool(BaseTool):
         if self.provider == "firecrawl":
             try:
                 return {"doc": self._firecrawl_fetch(doc), "fetch_mode": "firecrawl"}
+            except Exception:
+                try:
+                    return {"doc": self._jina_fetch(doc), "fetch_mode": "jina-fallback"}
+                except Exception:
+                    pass
+                try:
+                    return {"doc": self._http_fetch(doc), "fetch_mode": "http-fallback"}
+                except Exception:
+                    return {"doc": doc, "fetch_mode": "original-doc-fallback"}
+        if self.provider == "jina":
+            try:
+                return {"doc": self._jina_fetch(doc), "fetch_mode": "jina"}
             except Exception:
                 try:
                     return {"doc": self._http_fetch(doc), "fetch_mode": "http-fallback"}
@@ -84,6 +97,41 @@ class FetchPageTool(BaseTool):
             entities=doc.entities,
             tags=doc.tags,
         )
+
+    def _jina_fetch(self, doc: SearchDocument) -> SearchDocument:
+        if not doc.url:
+            raise ValueError("Document URL is required for Jina Reader fetch.")
+        target = "https://r.jina.ai/http://" + doc.url.removeprefix("https://").removeprefix("http://")
+        request = urllib.request.Request(
+            target,
+            headers=self._jina_headers(),
+            method="GET",
+        )
+        with urllib.request.urlopen(request, timeout=45) as response:
+            content = response.read(200000).decode("utf-8", errors="ignore")
+        return SearchDocument(
+            doc_id=doc.doc_id,
+            event_id=doc.event_id,
+            title=doc.title,
+            source=doc.source,
+            source_type=doc.source_type,
+            published_at=doc.published_at,
+            reliability=doc.reliability,
+            url=doc.url,
+            content=content or doc.content,
+            claims=doc.claims,
+            entities=doc.entities,
+            tags=[*doc.tags, "jina"],
+        )
+
+    def _jina_headers(self) -> dict[str, str]:
+        headers = {
+            "Accept": "text/plain",
+            "User-Agent": "HotPulseAgent/0.1",
+        }
+        if self.jina_api_key:
+            headers["Authorization"] = f"Bearer {self.jina_api_key}"
+        return headers
 
     def _http_fetch(self, doc: SearchDocument) -> SearchDocument:
         request = urllib.request.Request(

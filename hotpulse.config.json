@@ -4,6 +4,8 @@
     "tavily_api_key": "",
     "tavily_search_depth": "advanced",
     "tavily_topic": "news",
+    "tavily_include_domains": [],
+    "tavily_exclude_domains": [],
     "serpapi_api_key": "",
     "serpapi_engine": "google",
     "serpapi_gl": "cn",
@@ -11,7 +13,8 @@
   },
   "fetch": {
     "provider": "local",
-    "firecrawl_api_key": ""
+    "firecrawl_api_key": "",
+    "jina_api_key": ""
   },
   "policy": {
     "mode": "rule",

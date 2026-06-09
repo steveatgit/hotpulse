@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 import re
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 
 from ..i18n import zh_text
 from ..schemas import (
@@ -24,7 +26,7 @@ class BuildTimelineTool(BaseTool):
         clusters = self._build_clusters(events, evidence)
         source_assessments = self._assess_sources(evidence)
         snapshot = IncrementalSnapshot(
-            latest_published_at=max((item.published_at for item in evidence), default=""),
+            latest_published_at=max((self._evidence_date_key(item) for item in evidence), default=""),
             evidence_count=len(evidence),
             source_count=len({item.source for item in evidence}),
             timeline_event_count=len(events),
@@ -40,8 +42,8 @@ class BuildTimelineTool(BaseTool):
 
     def _group_evidence(self, evidence: list[Evidence]) -> dict[str, list[Evidence]]:
         grouped: dict[str, list[Evidence]] = defaultdict(list)
-        for item in sorted(evidence, key=lambda entry: (entry.published_at, entry.source)):
-            key = "|".join([self._date_key(item.published_at), self._topic_key(item)])
+        for item in sorted(evidence, key=lambda entry: (self._evidence_date_key(entry), entry.source)):
+            key = "|".join([self._evidence_date_key(item), self._topic_key(item)])
             grouped[key].append(item)
         return dict(grouped)
 
@@ -143,6 +145,14 @@ class BuildTimelineTool(BaseTool):
 
     def _topic_key(self, item: Evidence) -> str:
         lowered = item.claim.lower()
+        if item.claim_type == "business_financing":
+            if re.search(r"ipo|public offering|confidential s-1|go public|sec|上市|公开募股", lowered):
+                return "business_financing_ipo"
+            return "business_financing"
+        if item.claim_type == "product_security":
+            if re.search(r"lockdown mode|prompt injection|cyberattack|malicious instruction|攻击|注入", lowered):
+                return "product_security_lockdown"
+            return "product_security"
         if item.claim_type == "casualty":
             if re.search(r"fatal|death|死亡", lowered):
                 return "casualty_fatality_status"
@@ -166,7 +176,40 @@ class BuildTimelineTool(BaseTool):
 
     def _date_key(self, value: str) -> str:
         match = re.match(r"(\d{4}-\d{2}-\d{2})", value or "")
-        return match.group(1) if match else value or "unknown-date"
+        if match:
+            return match.group(1)
+        try:
+            parsed = parsedate_to_datetime(value or "")
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc).date().isoformat()
+        except (TypeError, ValueError):
+            pass
+        try:
+            parsed = datetime.fromisoformat((value or "").replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc).date().isoformat()
+        except ValueError:
+            return value or "unknown-date"
+
+    def _evidence_date_key(self, item: Evidence) -> str:
+        date_key = self._date_key(item.published_at)
+        if date_key and date_key not in {"1970-01-01", "unknown-date"}:
+            return date_key
+        extracted = self._extract_date_from_text(f"{item.claim} {item.supporting_text}")
+        return extracted or date_key or "unknown-date"
+
+    def _extract_date_from_text(self, text: str) -> str:
+        match = re.search(r"(20\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日", text)
+        if match:
+            year, month, day = (int(part) for part in match.groups())
+            return f"{year:04d}-{month:02d}-{day:02d}"
+        match = re.search(r"(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})", text)
+        if match:
+            year, month, day = (int(part) for part in match.groups())
+            return f"{year:04d}-{month:02d}-{day:02d}"
+        return ""
 
     def _confidence(self, items: list[Evidence]) -> float:
         if not items:
@@ -189,6 +232,10 @@ class BuildTimelineTool(BaseTool):
     def _event_title(self, topic: str, item: Evidence) -> str:
         labels = {
             "official_update": "官方进展",
+            "business_financing": "融资与上市进展",
+            "business_financing_ipo": "IPO 进展",
+            "product_security": "产品安全进展",
+            "product_security_lockdown": "安全模式进展",
             "casualty": "伤亡信息",
             "casualty_fatality_status": "死亡信息核验",
             "casualty_injury_status": "伤者救治进展",
@@ -205,6 +252,10 @@ class BuildTimelineTool(BaseTool):
     def _cluster_label(self, topic: str) -> str:
         return {
             "official_update": "官方通报与权威信息",
+            "business_financing": "融资与上市进展",
+            "business_financing_ipo": "IPO 与资本市场进展",
+            "product_security": "产品安全与风险防护",
+            "product_security_lockdown": "安全模式与提示注入防护",
             "casualty": "伤亡与人员影响",
             "casualty_fatality_status": "死亡信息核验",
             "casualty_injury_status": "伤者救治进展",

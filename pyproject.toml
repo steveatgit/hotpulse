@@ -14,6 +14,8 @@ dependencies = [
 [project.scripts]
 hotpulse = "hotpulse_agent.cli:main"
 hotpulse-eval = "hotpulse_agent.eval_cli:main"
+hotpulse-web = "hotpulse_agent.web:main"
+hotpulse-doctor = "hotpulse_agent.doctor:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

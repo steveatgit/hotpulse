@@ -5,6 +5,7 @@ from typing import Literal, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
+from .event_store import EventArchiveStore
 from .memory import MemoryManager
 from .planner import Planner
 from .reflector import Reflector
@@ -29,6 +30,7 @@ class OrchestratorGraphState(TypedDict, total=False):
     report: str
     final_state: AgentState
     metrics: dict
+    archive_path: str
 
 
 class HotPulseOrchestrator:
@@ -39,6 +41,7 @@ class HotPulseOrchestrator:
         router: ToolRouter,
         registry: ToolRegistry,
         reporter: ReportGenerator,
+        event_store: EventArchiveStore | None = None,
         max_steps: int = 12,
     ) -> None:
         self.planner = planner
@@ -46,6 +49,7 @@ class HotPulseOrchestrator:
         self.router = router
         self.registry = registry
         self.reporter = reporter
+        self.event_store = event_store
         self.max_steps = max_steps
         self.graph = self._build_graph()
 
@@ -87,6 +91,9 @@ class HotPulseOrchestrator:
         memory.working.current_query = question
         memory.record_query(question)
         memory.working.remaining_steps = self.max_steps
+        if self.event_store is not None:
+            archive_id = self.event_store.archive_id(question, event_id)
+            memory.load_archive_summary(archive_id, self.event_store.load(archive_id))
 
         plan = self.planner.create_plan(question, event_id)
         return {
@@ -205,17 +212,39 @@ class HotPulseOrchestrator:
         planning_decisions = graph_state["planning_decisions"]
         reflection_decisions = graph_state["reflection_decisions"]
         report = self.reporter.generate(question, memory)
+        archive_path = ""
+        if self.event_store is not None:
+            archive_path = str(
+                self.event_store.save(
+                    archive_id=memory.archive_id,
+                    question=question,
+                    event_id=graph_state.get("event_id"),
+                    memory=memory,
+                    traces=traces,
+                    report=report,
+                )
+            )
         final_state = AgentState.DONE if memory.evidence else AgentState.FAILED
         metrics = {
             "evidence_count": len(memory.evidence),
             "source_diversity": memory.source_diversity(),
             "coverage": memory.evidence_coverage(),
+            "citation_coverage": memory.citation_coverage(),
             "high_reliability_evidence": len(memory.high_reliability_evidence()),
             "cross_verified_evidence": len(memory.cross_verified_evidence()),
             "timeline_event_count": len(memory.built_timeline),
             "event_cluster_count": len(memory.event_clusters),
             "source_assessment_count": len(memory.source_assessments),
             "incremental_snapshot": asdict(memory.incremental_snapshot) if memory.incremental_snapshot else {},
+            "archive_loaded": memory.archive_loaded,
+            "archive_id": memory.archive_id,
+            "archive_path": archive_path,
+            "new_evidence_count": len(memory.incremental_snapshot.new_evidence_ids)
+            if memory.incremental_snapshot
+            else 0,
+            "new_timeline_event_count": len(memory.incremental_snapshot.new_timeline_event_keys)
+            if memory.incremental_snapshot
+            else 0,
             "memory_summary": memory.summary(),
             "plan_confidence": plan.confidence,
             "plan_metadata": plan.metadata,
@@ -233,6 +262,7 @@ class HotPulseOrchestrator:
             "report": report,
             "final_state": final_state,
             "metrics": metrics,
+            "archive_path": archive_path,
         }
 
     def _state_after_tool(self, tool_name: str) -> AgentState:
@@ -258,7 +288,20 @@ class HotPulseOrchestrator:
     ) -> Observation:
         if tool_name == "search_web":
             tool = self.registry.get(tool_name)
-            docs = tool.run(query=memory.working.current_query, event_id=event_id)
+            try:
+                docs = tool.run(query=memory.working.current_query, event_id=event_id)
+            except Exception as exc:
+                return Observation(
+                    tool_name=tool_name,
+                    summary=f"检索失败：{exc.__class__.__name__}: {exc}",
+                    payload={
+                        "docs": [],
+                        "trace_metadata": {
+                            "error_type": exc.__class__.__name__,
+                            "error": str(exc),
+                        },
+                    },
+                )
             summary = f"检索到 {len(docs)} 篇候选文档。"
             return Observation(tool_name=tool_name, summary=summary, payload={"docs": docs})
 

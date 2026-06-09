@@ -13,6 +13,8 @@ class SearchConfig:
     tavily_api_key: str = ""
     tavily_search_depth: str = "advanced"
     tavily_topic: str = "news"
+    tavily_include_domains: list[str] = field(default_factory=list)
+    tavily_exclude_domains: list[str] = field(default_factory=list)
     serpapi_api_key: str = ""
     serpapi_engine: str = "google"
     serpapi_gl: str = "us"
@@ -23,6 +25,7 @@ class SearchConfig:
 class FetchConfig:
     provider: str = "local"
     firecrawl_api_key: str = ""
+    jina_api_key: str = ""
 
 
 @dataclass
@@ -85,6 +88,16 @@ def load_config(base_dir: Path, config_path: Path | None = None) -> AppConfig:
                 os.getenv("HOTPULSE_TAVILY_SEARCH_DEPTH", "advanced"),
             ),
             tavily_topic=_pick(payload, ["search", "tavily_topic"], os.getenv("HOTPULSE_TAVILY_TOPIC", "news")),
+            tavily_include_domains=_pick_list(
+                payload,
+                ["search", "tavily_include_domains"],
+                os.getenv("HOTPULSE_TAVILY_INCLUDE_DOMAINS", ""),
+            ),
+            tavily_exclude_domains=_pick_list(
+                payload,
+                ["search", "tavily_exclude_domains"],
+                os.getenv("HOTPULSE_TAVILY_EXCLUDE_DOMAINS", ""),
+            ),
             serpapi_api_key=_pick(payload, ["search", "serpapi_api_key"], os.getenv("SERPAPI_API_KEY", "")),
             serpapi_engine=_pick(payload, ["search", "serpapi_engine"], os.getenv("HOTPULSE_SERPAPI_ENGINE", "google")),
             serpapi_gl=_pick(payload, ["search", "serpapi_gl"], os.getenv("HOTPULSE_SERPAPI_GL", "us")),
@@ -93,12 +106,17 @@ def load_config(base_dir: Path, config_path: Path | None = None) -> AppConfig:
         fetch=FetchConfig(
             provider=_pick(payload, ["fetch", "provider"], os.getenv("HOTPULSE_FETCH_PROVIDER", "local")),
             firecrawl_api_key=_pick(payload, ["fetch", "firecrawl_api_key"], os.getenv("FIRECRAWL_API_KEY", "")),
+            jina_api_key=_pick(payload, ["fetch", "jina_api_key"], os.getenv("JINA_API_KEY", "")),
         ),
         policy=PolicyConfig(
             mode=_pick(payload, ["policy", "mode"], os.getenv("HOTPULSE_POLICY_MODE", "rule")).lower(),
             base_url=_pick(payload, ["policy", "base_url"], _env_pick("HOTPULSE_LLM_BASE_URL", "OPENAI_BASE_URL")),
-            api_key=_pick(payload, ["policy", "api_key"], _env_pick("HOTPULSE_LLM_API_KEY", "OPENAI_API_KEY")),
-            model=_pick(payload, ["policy", "model"], _env_pick("HOTPULSE_LLM_MODEL", "OPENAI_MODEL")),
+            api_key=_pick(
+                payload,
+                ["policy", "api_key"],
+                _env_pick("HOTPULSE_LLM_API_KEY", "ZHIPU_API_KEY", "OPENAI_API_KEY"),
+            ),
+            model=_pick(payload, ["policy", "model"], _env_pick("HOTPULSE_LLM_MODEL", "ZHIPU_MODEL", "OPENAI_MODEL")),
             timeout=float(_pick(payload, ["policy", "timeout"], os.getenv("HOTPULSE_LLM_TIMEOUT", "20"))),
             temperature=float(
                 _pick(payload, ["policy", "temperature"], os.getenv("HOTPULSE_LLM_TEMPERATURE", "0.1"))
@@ -162,6 +180,23 @@ def _pick(payload: dict[str, Any], path: list[str], fallback: str) -> str:
     if not value:
         return fallback
     return value
+
+
+def _pick_list(payload: dict[str, Any], path: list[str], fallback: str) -> list[str]:
+    current: Any = payload
+    for key in path:
+        if not isinstance(current, dict) or key not in current:
+            return _split_list(fallback)
+        current = current[key]
+    if current is None:
+        return _split_list(fallback)
+    if isinstance(current, list):
+        return [str(item).strip() for item in current if str(item).strip()]
+    return _split_list(str(current))
+
+
+def _split_list(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 
 def _env_pick(*keys: str) -> str:

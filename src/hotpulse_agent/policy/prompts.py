@@ -161,7 +161,10 @@ def build_report_user_prompt(question: str, memory: MemoryManager) -> str:
         "memory_summary": memory.summary(),
         "evidence_count": len(memory.evidence),
         "source_diversity": memory.source_diversity(),
+        "citation_coverage": memory.citation_coverage(),
         "cross_verified_evidence_count": len(memory.cross_verified_evidence()),
+        "archive_loaded": memory.archive_loaded,
+        "archive_id": memory.archive_id,
         "conflict_claims": memory.conflict_claims(),
         "unresolved_questions": memory.unresolved_questions,
         "event_clusters": [
@@ -207,7 +210,11 @@ def build_report_user_prompt(question: str, memory: MemoryManager) -> str:
             "evidence_count": memory.incremental_snapshot.evidence_count,
             "source_count": memory.incremental_snapshot.source_count,
             "timeline_event_count": memory.incremental_snapshot.timeline_event_count,
+            "previous_evidence_count": memory.incremental_snapshot.previous_evidence_count,
+            "previous_source_count": memory.incremental_snapshot.previous_source_count,
+            "previous_timeline_event_count": memory.incremental_snapshot.previous_timeline_event_count,
             "new_evidence_ids": memory.incremental_snapshot.new_evidence_ids,
+            "new_timeline_event_keys": memory.incremental_snapshot.new_timeline_event_keys,
         }
         if memory.incremental_snapshot
         else {},
